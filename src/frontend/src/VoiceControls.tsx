@@ -40,7 +40,7 @@ interface VoiceControlsProps {
   onSubmit: (question: string) => void;
   /** Disable controls while the coach/game cannot accept input. */
   disabled?: boolean;
-  /** Most recent coach response, spoken only after an explicit button press. */
+  /** Most recent coach response. It is read automatically while auto-read is enabled. */
   latestAssistantText?: string | null;
   /** BCP 47 language tag, for example "en" or "da". */
   language?: string;
@@ -88,6 +88,7 @@ export function VoiceControls({
   const [synthesisSupported, setSynthesisSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
+  const [autoRead, setAutoRead] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
@@ -104,6 +105,7 @@ export function VoiceControls({
   const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  const lastAutoReadTextRef = useRef('');
 
   useEffect(() => {
     questionRef.current = question;
@@ -353,6 +355,27 @@ export function VoiceControls({
     window.speechSynthesis.speak(utterance);
   };
 
+  useEffect(() => {
+    const text = latestAssistantText?.trim();
+    if (!text) return;
+    if (!autoRead) {
+      lastAutoReadTextRef.current = text;
+      return;
+    }
+    if (disabled || speaking || text === lastAutoReadTextRef.current) return;
+    lastAutoReadTextRef.current = text;
+    void speakLatest();
+  }, [autoRead, disabled, latestAssistantText, speaking, speakLatest]);
+
+  const toggleAutoRead = () => {
+    if (autoRead) {
+      setAutoRead(false);
+      if (speaking) stopSpeaking();
+    } else {
+      setAutoRead(true);
+    }
+  };
+
   const stopSpeaking = () => {
     if (ttsMode === 'server') {
       audioRef.current?.pause();
@@ -398,7 +421,13 @@ export function VoiceControls({
       )}
       {ttsAvailable && (
         <>
-          <button className="voice-control-button" type="button" onClick={() => void speakLatest()} disabled={disabled || speaking || !latestAssistantText?.trim()}>
+          <button
+            className={`voice-control-button ${autoRead ? 'auto-read' : ''}`}
+            type="button"
+            onClick={toggleAutoRead}
+            aria-pressed={autoRead}
+            title={autoRead ? (danish ? 'Klik for at slå automatisk oplæsning fra' : 'Click to turn off automatic reading') : (danish ? 'Klik for automatisk at få svar læst op' : 'Click to read replies automatically')}
+          >
             <Volume2 size={16} />
             <span>{danish ? 'Læs svar op' : 'Speak reply'}</span>
           </button>

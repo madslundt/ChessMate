@@ -31,6 +31,11 @@
   color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
 }
+.voice-control-button.auto-read {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
 .voice-submit-button {
   border-color: var(--accent);
 }
