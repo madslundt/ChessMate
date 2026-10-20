@@ -92,7 +92,6 @@ export const da: typeof en = {
   variationPrevious: "Forrige træk i varianten",
   variationNext: "Næste træk i varianten",
   showOnBoard: "Vis på brættet",
-  moreMoveDetails: "Flere detaljer",
   watchConsequence: "Se konsekvensen",
   watchAlternative: "Se et bedre alternativ",
   retryPosition: "Prøv stillingen igen",

@@ -1,8 +1,8 @@
 import { useContext, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Save } from 'lucide-react';
-import { api } from './api';
-import { LocaleContext } from './i18n';
+import { Check, RefreshCw, Save } from 'lucide-react';
+import { api, ApiError } from './api';
+import { LocaleContext, useT, type TranslationKey } from './i18n';
 import { ErrorNotice, Field, Spinner, Toggle } from './components';
 import './styles/speech-settings.css';
 
@@ -21,11 +21,90 @@ export interface SpeechSettingsValue {
 }
 
 const QUERY_KEY = ['speech-settings'];
-const STT_MODELS = ['whisper-1', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe'];
-const TTS_MODELS = ['tts-1', 'tts-1-hd', 'gpt-4o-mini-tts'];
+const MODEL_ERRORS: Record<string, TranslationKey> = {
+  tls_certificate: 'llmModelsTlsError',
+  timeout: 'llmModelsTimeout',
+  connection: 'llmModelsConnectError',
+  authentication: 'llmModelsAuthError',
+  not_found: 'llmModelsNotFound',
+  invalid_response: 'llmModelsFormatError',
+};
+
+function useSpeechModels(
+  provider: 'stt' | 'tts',
+  endpoint: string,
+  apiKey: string,
+  clearKey: boolean,
+  verifyTls: boolean,
+  refresh: number,
+) {
+  const [models, setModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<TranslationKey | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setModels([]);
+    setError(null);
+    setLoading(!!endpoint);
+    if (!endpoint) return () => controller.abort();
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await api<{ models: string[] }>(
+          '/settings/speech/models',
+          { provider, base_url: endpoint, ...(apiKey ? { api_key: apiKey } : {}), clear_api_key: clearKey, verify_tls: verifyTls },
+          'POST',
+          controller.signal,
+        );
+        if (!controller.signal.aborted) setModels(result.models);
+      } catch (err) {
+        if (!controller.signal.aborted)
+          setError(err instanceof ApiError ? MODEL_ERRORS[err.code || ''] || 'llmModelsError' : 'llmModelsError');
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 350);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [provider, endpoint, apiKey, clearKey, verifyTls, refresh]);
+  return { models, loading, error };
+}
+
+function ModelStatus({
+  models,
+  loading,
+  error,
+  endpoint,
+  label,
+  refreshLabel,
+  onRefresh,
+}: {
+  models: string[];
+  loading: boolean;
+  error: TranslationKey | null;
+  endpoint: string;
+  label: (en: string, danish: string) => string;
+  refreshLabel: string;
+  onRefresh: () => void;
+}) {
+  const t = useT();
+  return (
+    <div className="speech-model-status">
+      <span role="status">
+        {t(loading ? 'llmModelsLoading' : error || (!endpoint ? 'llmModelsEndpoint' : models.length ? 'llmModelsLoaded' : 'llmModelsEmpty'))}
+      </span>
+      <button className="text-button" type="button" disabled={!endpoint || loading} onClick={onRefresh}>
+        <RefreshCw size={14} />
+        {refreshLabel || label('Refresh models', 'Opdater modeller')}
+      </button>
+    </div>
+  );
+}
 /** Self-loading settings form; mount this component inside the Settings page. */
 export function SpeechSettings() {
   const lang = useContext(LocaleContext);
+  const t = useT();
   const da = lang === 'da';
   const label = (en: string, danish: string) => (da ? danish : en);
   const client = useQueryClient();
@@ -42,6 +121,12 @@ export function SpeechSettings() {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<unknown>(null);
+  const [refreshSttModels, setRefreshSttModels] = useState(0);
+  const [refreshTtsModels, setRefreshTtsModels] = useState(0);
+  const sttModels = useSpeechModels('stt', draft?.stt_base_url.trim().replace(/\/+$/, '') || '', sttKey, clearSttKey, draft?.verify_tls ?? true, refreshSttModels);
+  const ttsModels = useSpeechModels('tts', draft?.tts_base_url.trim().replace(/\/+$/, '') || '', ttsKey, clearTtsKey, draft?.verify_tls ?? true, refreshTtsModels);
+  const useCustomSttModel = !sttModels.models.includes(draft?.stt_model || '');
+  const useCustomTtsModel = !ttsModels.models.includes(draft?.tts_model || '');
 
   useEffect(() => {
     if (query.data) setDraft((current) => current || query.data);
@@ -133,18 +218,20 @@ export function SpeechSettings() {
                       </Field>
                       <Field label={label('STT model', 'STT-model')}>
                         <select
-                          value={STT_MODELS.includes(draft.stt_model) ? draft.stt_model : 'custom'}
-                          onChange={(event) => change({ stt_model: event.target.value === 'custom' ? '' : event.target.value })}
+                          value={useCustomSttModel ? 'custom' : draft.stt_model ? `model:${draft.stt_model}` : ''}
+                          onChange={(event) => change({ stt_model: event.target.value === 'custom' || !event.target.value ? '' : event.target.value.slice(6) })}
                         >
-                          {STT_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}
+                          <option value="" disabled>{t('llmSelectModel')}</option>
+                          {sttModels.models.map((model) => <option key={model} value={`model:${model}`}>{model}</option>)}
                           <option value="custom">{label('Custom…', 'Brugerdefineret…')}</option>
                         </select>
-                        {!STT_MODELS.includes(draft.stt_model) && <input
+                        {useCustomSttModel && <input
                           value={draft.stt_model}
                           placeholder={label('Enter model name', 'Indtast modelnavn')}
                           maxLength={200}
                           onChange={(event) => change({ stt_model: event.target.value })}
                         />}
+                        <ModelStatus models={sttModels.models} loading={sttModels.loading} error={sttModels.error} endpoint={draft.stt_base_url} label={label} refreshLabel={t('llmRefreshModels')} onRefresh={() => setRefreshSttModels((value) => value + 1)} />
                       </Field>
                       <Field label={label('API key', 'API-nøgle')}>
                         <input
@@ -200,18 +287,20 @@ export function SpeechSettings() {
                       </Field>
                       <Field label={label('TTS model', 'TTS-model')}>
                         <select
-                          value={TTS_MODELS.includes(draft.tts_model) ? draft.tts_model : 'custom'}
-                          onChange={(event) => change({ tts_model: event.target.value === 'custom' ? '' : event.target.value })}
+                          value={useCustomTtsModel ? 'custom' : draft.tts_model ? `model:${draft.tts_model}` : ''}
+                          onChange={(event) => change({ tts_model: event.target.value === 'custom' || !event.target.value ? '' : event.target.value.slice(6) })}
                         >
-                          {TTS_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}
+                          <option value="" disabled>{t('llmSelectModel')}</option>
+                          {ttsModels.models.map((model) => <option key={model} value={`model:${model}`}>{model}</option>)}
                           <option value="custom">{label('Custom…', 'Brugerdefineret…')}</option>
                         </select>
-                        {!TTS_MODELS.includes(draft.tts_model) && <input
+                        {useCustomTtsModel && <input
                           value={draft.tts_model}
                           placeholder={label('Enter model name', 'Indtast modelnavn')}
                           maxLength={200}
                           onChange={(event) => change({ tts_model: event.target.value })}
                         />}
+                        <ModelStatus models={ttsModels.models} loading={ttsModels.loading} error={ttsModels.error} endpoint={draft.tts_base_url} label={label} refreshLabel={t('llmRefreshModels')} onRefresh={() => setRefreshTtsModels((value) => value + 1)} />
                       </Field>
                       <Field label={label('Voice', 'Stemme')}>
                         <input

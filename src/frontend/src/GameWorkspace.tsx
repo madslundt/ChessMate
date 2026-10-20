@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -85,27 +85,6 @@ export function GameWorkspace(props: WorkspaceProps) {
   const [pinnedMove, setPinnedMove] = useState<string | null | undefined>(undefined);
   const [squareAnswer, setSquareAnswer] = useState<((square: string) => void) | null>(null);
   const [visual, setVisual] = useState<VisualInsight | null>(null);
-  const boardPanelRef = useRef<HTMLElement | null>(null);
-  const [boardPanelHeight, setBoardPanelHeight] = useState<number | null>(null);
-  const [chatAvailableHeight, setChatAvailableHeight] = useState<number | null>(null);
-  useEffect(() => {
-    const boardPanel = boardPanelRef.current;
-    if (!boardPanel) return;
-    const updateHeights = () => {
-      const height = boardPanel.getBoundingClientRect().height;
-      setBoardPanelHeight((current) => current !== null && Math.abs(current - height) < 1 ? current : height);
-      const available = Math.max(0, window.innerHeight - boardPanel.getBoundingClientRect().top - 32);
-      setChatAvailableHeight((current) => current !== null && Math.abs(current - available) < 1 ? current : available);
-    };
-    const observer = new ResizeObserver(updateHeights);
-    observer.observe(boardPanel);
-    window.addEventListener('resize', updateHeights);
-    updateHeights();
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', updateHeights);
-    };
-  }, []);
   const highlightedMove = hoveredMove ?? pinnedMove;
   const activeVisual = visual?.fen === fen ? visual : null;
   const threatVisual = /threat|attack|pin|fork|skewer|exposed|reply/i.test(`${activeVisual?.claim_type || ''} ${activeVisual?.id || ''}`);
@@ -179,8 +158,8 @@ export function GameWorkspace(props: WorkspaceProps) {
         </div>
       )}
       {game && finished && !analysisMode && <PostGameSummary game={game} />}
-      <div className="game-layout" style={{ '--board-panel-height': boardPanelHeight ? `${boardPanelHeight}px` : undefined, '--chat-available-height': chatAvailableHeight ? `${chatAvailableHeight}px` : undefined } as CSSProperties}>
-        <section ref={boardPanelRef} className={`board-panel panel ${explore ? 'is-exploring' : ''}`}>
+      <div className="game-layout">
+        <section className={`board-panel panel ${explore ? 'is-exploring' : ''}`}>
           <div className="player-row">
             <span className="avatar">
               <Bot size={23} />

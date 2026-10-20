@@ -157,7 +157,6 @@
     max-width: min(100%, 600px);
   }
   .coach-panel {
-    height: auto;
     min-height: 480px;
     max-height: 660px;
   }

@@ -90,7 +90,6 @@ export const en = {
   variationPrevious: "Previous variation move",
   variationNext: "Next variation move",
   showOnBoard: "Show on board",
-  moreMoveDetails: "More details",
   watchConsequence: "Watch the consequence",
   watchAlternative: "Watch a better alternative",
   retryPosition: "Retry this position",

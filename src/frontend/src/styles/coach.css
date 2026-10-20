@@ -1,15 +1,9 @@
 .coach-panel {
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  max-height: none;
+  min-height: 610px;
+  max-height: calc(100dvh - 150px);
   overflow: hidden;
-}
-@media (min-width: 901px) {
-  .coach-panel {
-    height: min(var(--board-panel-height, calc(100dvh - 150px)), var(--chat-available-height, calc(100dvh - 150px)));
-    max-height: min(var(--board-panel-height, calc(100dvh - 150px)), var(--chat-available-height, calc(100dvh - 150px)));
-  }
 }
 .panel-tabs {
   display: flex;
@@ -223,40 +217,6 @@
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-}
-.move-feedback-summary {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--accent);
-  font-size: 12px;
-}
-.move-feedback-summary > span {
-  color: var(--muted);
-  font-size: 11px;
-}
-.move-feedback-preview {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  margin: 7px 0 0 !important;
-}
-.move-feedback-details {
-  margin-top: 8px;
-  font-size: 11px;
-}
-.move-feedback-details > summary {
-  width: fit-content;
-  color: var(--accent);
-  cursor: pointer;
-  font-weight: 600;
-}
-.move-feedback-details[open] > summary {
-  margin-bottom: 8px;
-}
-.move-feedback-details .confidence-badge {
-  margin-bottom: 8px;
 }
 .move-feedback-actions {
   margin-top: 8px;

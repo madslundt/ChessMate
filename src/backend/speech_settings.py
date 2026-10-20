@@ -94,6 +94,51 @@ class SpeechSettingsPatch(Input):
         return self
 
 
+class SpeechModelsInput(Input):
+    provider: str
+    base_url: str
+    api_key: SecretStr | None = None
+    clear_api_key: bool = False
+    verify_tls: StrictBool = True
+
+    @field_validator("provider")
+    @classmethod
+    def valid_provider(cls, value):
+        if value not in ("stt", "tts"):
+            raise ValueError("Provider must be stt or tts")
+        return value
+
+    @field_validator("base_url")
+    @classmethod
+    def valid_base_url(cls, value):
+        value = value.strip().rstrip("/")
+        parsed = urlsplit(value)
+        if (not value or len(value) > 2000 or parsed.scheme not in ("http", "https") or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment
+                or any(c.isspace() for c in value)):
+            raise ValueError("Use an HTTP(S) API base URL without credentials, query parameters, or fragments")
+        try:
+            parsed.port
+        except ValueError:
+            raise ValueError("Invalid endpoint port") from None
+        return value
+
+    @field_validator("api_key")
+    @classmethod
+    def valid_models_key(cls, value):
+        if value:
+            raw = value.get_secret_value()
+            if len(raw) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in raw):
+                raise ValueError("API key must be at most 4096 printable ASCII characters")
+        return value
+
+    @model_validator(mode="after")
+    def no_key_conflict(self):
+        if self.clear_api_key and self.api_key and self.api_key.get_secret_value():
+            raise ValueError("Choose either replacing or removing the API key")
+        return self
+
+
 class SynthesisInput(Input):
     text: str = Field(min_length=1, max_length=4000)
     language: str = Field(default="en", pattern="^(en|da)$")
@@ -129,6 +174,71 @@ def _base(base_url: str) -> str:
 
 def _client(verify_tls: bool):
     return httpx.AsyncClient(timeout=45, verify=llm_tls_context() if verify_tls else False)
+
+
+def _models_error(error: Exception) -> HTTPException:
+    code, message = "invalid_response", "The endpoint did not return a valid model list."
+    if isinstance(error, httpx.TimeoutException):
+        code, message = "timeout", "The speech model server timed out."
+    elif isinstance(error, httpx.ConnectError):
+        cause, seen = error, set()
+        while cause is not None and id(cause) not in seen:
+            seen.add(id(cause))
+            if isinstance(cause, ssl.SSLCertVerificationError):
+                code, message = "tls_certificate", "The backend does not trust the server certificate."
+                break
+            cause = cause.__cause__ or cause.__context__
+        else:
+            code, message = "connection", "The backend cannot connect to the speech model server."
+    elif isinstance(error, httpx.HTTPStatusError):
+        if error.response.status_code in (401, 403):
+            code, message = "authentication", "The speech model server rejected authentication."
+        elif error.response.status_code == 404:
+            code, message = "not_found", "The model-list API was not found."
+        else:
+            code, message = "server_error", "The speech model server returned an HTTP error."
+    return HTTPException(502, {"code": code, "message": message})
+
+
+@router.post("/settings/speech/models")
+async def list_speech_models(data: dict, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    try:
+        draft = SpeechModelsInput.model_validate(data)
+    except ValidationError as exc:
+        raise HTTPException(422, exc.errors(include_input=False, include_context=False)) from None
+    saved = db.get(SpeechSettings, user.id)
+    key_field = "stt_api_key" if draft.provider == "stt" else "tts_api_key"
+    url_field = "stt_base_url" if draft.provider == "stt" else "tts_base_url"
+    saved_key = getattr(saved, key_field, "") if saved else ""
+    saved_url = getattr(saved, url_field, "") if saved else ""
+    key = "" if draft.clear_api_key else (
+        draft.api_key.get_secret_value() if draft.api_key else saved_key if draft.base_url == saved_url else ""
+    )
+    base_url = _base(draft.base_url)
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    try:
+        async with httpx.AsyncClient(timeout=10, verify=llm_tls_context() if draft.verify_tls else False) as client:
+            async with client.stream("GET", base_url + "/models", headers=headers) as response:
+                response.raise_for_status()
+                content = bytearray()
+                async for chunk in response.aiter_bytes():
+                    content.extend(chunk)
+                    if len(content) > 2_000_000:
+                        raise ValueError("Model catalog is too large")
+                payload = json.loads(content)
+        if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+            raise ValueError("Invalid model catalog")
+        models = set()
+        for item in payload["data"]:
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+                raise ValueError("Invalid model identifier")
+            model = item["id"].strip()
+            if not model or len(model) > 200 or any(ord(c) < 32 for c in model):
+                raise ValueError("Invalid model identifier")
+            models.add(model)
+        return {"models": sorted(models)}
+    except (httpx.HTTPError, ValueError) as error:
+        raise _models_error(error) from None
 
 
 def _provider_error(error: Exception) -> HTTPException:

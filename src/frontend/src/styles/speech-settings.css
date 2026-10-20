@@ -47,6 +47,19 @@
   font-size: 11px;
   line-height: 1.45;
 }
+.speech-model-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.speech-model-status .text-button {
+  flex: 0 0 auto;
+}
 .speech-security {
   margin-top: 16px;
   max-width: 520px;
