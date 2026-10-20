@@ -45,6 +45,7 @@ class SpeechSettings(Base):
     tts_base_url: Mapped[str] = mapped_column(String(2000), default="")
     tts_model: Mapped[str] = mapped_column(String(200), default="")
     tts_voice: Mapped[str] = mapped_column(String(200), default="alloy", server_default="alloy")
+    tts_format: Mapped[str] = mapped_column(String(10), default="mp3", server_default="mp3")
     tts_api_key: Mapped[str] = mapped_column(Text, default="")
     verify_tls: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
 

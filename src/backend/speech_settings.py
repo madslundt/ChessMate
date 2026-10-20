@@ -34,6 +34,7 @@ class SpeechSettingsPatch(Input):
     tts_base_url: str | None = None
     tts_model: str | None = None
     tts_voice: str | None = None
+    tts_format: str | None = None
     verify_tls: StrictBool | None = None
     stt_api_key: SecretStr | None = None
     tts_api_key: SecretStr | None = None
@@ -74,6 +75,13 @@ class SpeechSettingsPatch(Input):
         value = value.strip()
         if len(value) > 200 or any(ord(c) < 32 for c in value):
             raise ValueError("Value must be at most 200 characters without control characters")
+        return value
+
+    @field_validator("tts_format")
+    @classmethod
+    def valid_tts_format(cls, value):
+        if value is not None and value not in ("mp3", "wav"):
+            raise ValueError("TTS format must be mp3 or wav")
         return value
 
     @field_validator("stt_api_key", "tts_api_key")
@@ -162,6 +170,7 @@ def _public(saved: SpeechSettings) -> dict:
         "tts_base_url": saved.tts_base_url,
         "tts_model": saved.tts_model,
         "tts_voice": saved.tts_voice,
+        "tts_format": saved.tts_format,
         "verify_tls": saved.verify_tls,
         "has_stt_api_key": bool(saved.stt_api_key),
         "has_tts_api_key": bool(saved.tts_api_key),
@@ -329,7 +338,7 @@ async def synthesize(data: SynthesisInput, user: User = Depends(current_user), d
     if saved is None or saved.tts_mode != "server" or not saved.tts_base_url or not saved.tts_model or not saved.tts_voice:
         raise HTTPException(409, "Server speech synthesis is not configured")
     headers = {"Authorization": f"Bearer {saved.tts_api_key}"} if saved.tts_api_key else {}
-    payload = {"model": saved.tts_model, "input": data.text, "voice": saved.tts_voice, "response_format": "mp3",
+    payload = {"model": saved.tts_model, "input": data.text, "voice": saved.tts_voice, "response_format": saved.tts_format,
                "instructions": "Speak in English." if data.language == "en" else "Speak in Danish."}
     try:
         async with _client(saved.verify_tls) as client:

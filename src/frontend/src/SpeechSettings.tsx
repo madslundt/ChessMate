@@ -16,12 +16,14 @@ export interface SpeechSettingsValue {
   tts_base_url: string;
   tts_model: string;
   tts_voice: string;
+  tts_format: 'mp3' | 'wav';
   verify_tls: boolean;
   has_stt_api_key: boolean;
   has_tts_api_key: boolean;
 }
 
 const QUERY_KEY = ['speech-settings'];
+const TTS_VOICES = ['alloy', 'ash', 'ballad', 'cedar', 'coral', 'echo', 'fable', 'marin', 'nova', 'onyx', 'sage', 'shimmer', 'verse'];
 const MODEL_ERRORS: Record<string, TranslationKey> = {
   tls_certificate: 'llmModelsTlsError',
   timeout: 'llmModelsTimeout',
@@ -138,6 +140,7 @@ export function SpeechSettings() {
   const ttsModels = useSpeechModels('tts', draft?.tts_base_url.trim().replace(/\/+$/, '') || '', ttsKey, clearTtsKey, draft?.verify_tls ?? true, refreshTtsModels);
   const useCustomSttModel = !sttModels.models.includes(draft?.stt_model || '');
   const useCustomTtsModel = !ttsModels.models.includes(draft?.tts_model || '');
+  const useCustomTtsVoice = !TTS_VOICES.includes(draft?.tts_voice || '');
 
   useEffect(() => {
     if (query.data) setDraft((current) => current || query.data);
@@ -161,6 +164,7 @@ export function SpeechSettings() {
     && draft.tts_base_url === query.data.tts_base_url
     && draft.tts_model === query.data.tts_model
     && draft.tts_voice === query.data.tts_voice
+    && draft.tts_format === query.data.tts_format
     && draft.verify_tls === query.data.verify_tls
     && !ttsKey && !clearTtsKey;
 
@@ -265,6 +269,7 @@ export function SpeechSettings() {
                     tts_base_url: draft.tts_base_url,
                     tts_model: draft.tts_model,
                     tts_voice: draft.tts_voice,
+                    tts_format: draft.tts_format,
                     verify_tls: draft.verify_tls,
                     ...(sttKey ? { stt_api_key: sttKey } : {}),
                     ...(ttsKey ? { tts_api_key: ttsKey } : {}),
@@ -416,12 +421,28 @@ export function SpeechSettings() {
                         <ModelStatus models={ttsModels.models} loading={ttsModels.loading} error={ttsModels.error} endpoint={draft.tts_base_url} label={label} refreshLabel={t('llmRefreshModels')} onRefresh={() => setRefreshTtsModels((value) => value + 1)} />
                       </Field>
                       <Field label={label('Voice', 'Stemme')}>
-                        <input
+                        <select
+                          value={useCustomTtsVoice ? 'custom' : draft.tts_voice}
+                          onChange={(event) => change({ tts_voice: event.target.value === 'custom' ? '' : event.target.value })}
+                        >
+                          {TTS_VOICES.map((voice) => <option key={voice} value={voice}>{voice}</option>)}
+                          <option value="custom">{label('Custom…', 'Brugerdefineret…')}</option>
+                        </select>
+                        {useCustomTtsVoice && <input
                           value={draft.tts_voice}
-                          placeholder="alloy"
-                          maxLength={100}
+                          placeholder={label('Enter voice name', 'Indtast stemmenavn')}
+                          maxLength={200}
                           onChange={(event) => change({ tts_voice: event.target.value })}
-                        />
+                        />}
+                      </Field>
+                      <Field label={label('Audio format', 'Lydformat')}>
+                        <select
+                          value={draft.tts_format}
+                          onChange={(event) => change({ tts_format: event.target.value as SpeechSettingsValue['tts_format'] })}
+                        >
+                          <option value="mp3">MP3</option>
+                          <option value="wav">WAV</option>
+                        </select>
                       </Field>
                       <Field label={label('API key', 'API-nøgle')}>
                         <input

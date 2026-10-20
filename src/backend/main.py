@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import inspect, select, text
 from sqlalchemy.orm import Session
 
 from . import auth, games
@@ -39,6 +39,12 @@ async def lifespan(_app: FastAPI):
     # PostgreSQL schema changes are owned by Alembic; SQLite is the zero-setup development mode.
     if settings.database_url.startswith("sqlite"):
         Base.metadata.create_all(engine)
+        columns = {column["name"] for column in inspect(engine).get_columns("speech_settings")}
+        if "tts_format" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text(
+                    "ALTER TABLE speech_settings ADD COLUMN tts_format VARCHAR(10) NOT NULL DEFAULT 'mp3'"
+                ))
     with SessionLocal() as db:
         seed_exercises(db)
     yield

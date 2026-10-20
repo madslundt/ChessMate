@@ -6,6 +6,7 @@ export interface SpeechSettings {
   tts_base_url: string;
   tts_model: string;
   tts_voice: string;
+  tts_format: 'mp3' | 'wav';
   verify_tls: boolean;
   has_stt_api_key: boolean;
   has_tts_api_key: boolean;
