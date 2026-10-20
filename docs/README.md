@@ -1,10 +1,6 @@
-# Chessmate
+# Setup and usage guide
 
-A self-hosted chess training application built with React, FastAPI, PostgreSQL, python-chess, and local Stockfish. Your own OpenAI-compatible inference server can explain verified chess analysis. Gameplay and deterministic coaching remain available without an LLM.
-
-The repository was initially empty. Implementation and verification status, including unfinished requirements, are maintained in [IMPLEMENTATION.md](IMPLEMENTATION.md).
-
-See [ARCHITECTURE.md](ARCHITECTURE.md) for module ownership, data flow, state invariants, and extension boundaries.
+This guide covers running and operating Chessmate. For a product overview, start at the repository [README](../README.md). For component boundaries and data flow, see [ARCHITECTURE.md](ARCHITECTURE.md); implementation status, verification, and known limitations are in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 ## Repository setup
 
