@@ -201,24 +201,69 @@ class CoachService:
         if not candidates:
             return {"fen": board.fen(), "level": level, "text": "Stillingen er afsluttet." if da else "This position has ended.", "candidates": []}
         best = candidates[0]
+        facts = best["facts"]
+        piece_names = {"pawn": "bonde", "knight": "springer", "bishop": "løber", "rook": "tårn", "queen": "dronning", "king": "konge"}
+        piece = piece_names.get(facts["piece"], "brik") if da else facts["piece"]
+        move = chess.Move.from_uci(best["uci"])
+        after = board.copy()
+        after.push(move)
+        attacked_major = next((square for square in after.attacks(move.to_square)
+                               if after.piece_at(square) and after.color_at(square) != board.turn
+                               and after.piece_type_at(square) in (chess.QUEEN, chess.ROOK)), None)
+        target = chess.square_name(attacked_major) if attacked_major is not None else None
+        target_piece = None
+        if target:
+            target_type = after.piece_type_at(attacked_major)
+            target_name = chess.piece_name(target_type)
+            target_piece = piece_names.get(target_name, target_name) if da else target_name
+
         if level == 1:
-            phase = analysis["observations"]["phase"]
-            text = ({"opening": "Overvej udvikling, centrum og kongens sikkerhed.", "middlegame": "Undersøg skakker, slag og trusler for begge sider.",
-                     "endgame": "Overvej kongens aktivitet og bøndernes muligheder."}[phase] if da else
-                    {"opening": "Think about development, the center, and king safety.", "middlegame": "Look for checks, captures, and threats for both sides.",
-                     "endgame": "Consider king activity and pawn promotion opportunities."}[phase])
+            if facts["check"]:
+                text = "Start med skakker, der skaber en ekstra trussel." if da else "Start with checks that create a second threat."
+            elif facts["capture"]:
+                text = "Begynd med slag, og se hvad der står tilbage efter modstanderens bedste genslag." if da else "Start with captures, then see what remains after the opponent's best recapture."
+            elif facts["castle"]:
+                text = "Sammenlign kongens sikkerhed med dine mest presserende skakker og slag." if da else "Compare king safety with your most urgent checks and captures."
+            elif facts["develops_minor"]:
+                text = "Se efter en måde at forbedre en let officer og få mere kontrol over centrum." if da else "Look for a way to improve a minor piece while gaining central control."
+            elif facts.get("central_control"):
+                squares = ", ".join(facts["central_control"])
+                text = f"Centrum er vigtigt her; se efter pres på {squares}." if da else f"The center matters here; look for ways to pressure {squares}."
+            else:
+                text = (f"Se først på din {piece} på {facts['from']}; den kan forbedres uden at overse modstanderens trusler." if da else
+                        f"Start with your {piece} on {facts['from']}; look for an improvement that still meets the opponent's threats.")
         elif level == 2:
-            if best["facts"]["check"]: text = "Undersøg de mulige skakker." if da else "Examine the available checks."
-            elif best["facts"]["capture"]: text = "Undersøg de lovlige slag og svarene." if da else "Look closely at the legal captures and their possible replies."
-            else: text = "Sammenlign brikkernes aktivitet efter hvert kandidat-træk." if da else "Compare how each candidate changes your pieces' activity."
+            if facts["check"] and target:
+                text = (f"Din {piece} på {facts['from']} kan give skak og samtidig angribe modstanderens {target_piece} på {target}." if da else
+                        f"Your {piece} on {facts['from']} can give check while also attacking the opponent's {target_piece} on {target}.")
+            elif facts["check"]:
+                text = (f"Fokuser på din {piece} på {facts['from']}; den stærkeste idé begynder med skak." if da else
+                        f"Focus on your {piece} on {facts['from']}; the strongest idea starts with a check.")
+            elif facts["capture"]:
+                captured = piece_names.get(facts.get("captured_piece"), "brik") if da else (facts.get("captured_piece") or "piece")
+                text = (f"Fokuser på din {piece} på {facts['from']}: den kan slå en {captured} på {facts['to']}. Vurdér genslaget." if da else
+                        f"Focus on your {piece} on {facts['from']}: it can capture a {captured} on {facts['to']}. Check the recapture.")
+            elif facts["castle"]:
+                text = (f"Undersøg rokade med kongen på {facts['from']}; den bringer kongen i sikkerhed og aktiverer tårnet." if da else
+                        f"Consider castling with the king on {facts['from']}; it improves king safety and activates the rook.")
+            elif facts["develops_minor"]:
+                text = (f"Fokuser på din {piece} på {facts['from']}; den kan udvikles til en mere aktiv plads." if da else
+                        f"Focus on your {piece} on {facts['from']}; it can develop to a more active square.")
+            elif facts.get("central_control"):
+                squares = ", ".join(facts["central_control"])
+                text = (f"Din {piece} på {facts['from']} kan øge kontrollen over {squares}." if da else
+                        f"Your {piece} on {facts['from']} can increase control of {squares}.")
+            else:
+                text = (f"Den vigtigste brik at forbedre er din {piece} på {facts['from']}." if da else
+                        f"The key piece to improve is your {piece} on {facts['from']}.")
         elif level == 3:
-            piece = best["facts"]["piece"]
-            names = {"pawn": "bonde", "knight": "springer", "bishop": "løber", "rook": "tårn", "queen": "dronning", "king": "konge"}
-            text = f"Undersøg lovlige træk med en {names[piece]}." if da else f"Look for a useful move with a {piece}."
-        else: text = f"{best['san']}: {move_idea(best['facts'], language)}"
+            text = f"{best['san']}: {move_idea(facts, language)}"
+        else:
+            text = f"{best['san']}: {move_idea(facts, language)}"
         side = ("Hvid" if board.turn else "Sort") if da else ("White" if board.turn else "Black")
         text = (f"{side} i trækket: " if da else f"{side} to move: ") + text
-        result = {"fen": board.fen(), "level": level, "text": text, "perspective": "white" if board.turn else "black"}
+        result = {"fen": board.fen(), "level": level, "text": text, "perspective": "white" if board.turn else "black",
+                  "highlight_move": best["uci"]}
         if level == 4:
             result["candidates"] = [{**c, "explanation": move_idea(c["facts"], language)} for c in candidates]
         return result

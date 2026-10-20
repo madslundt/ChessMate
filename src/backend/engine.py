@@ -175,6 +175,25 @@ class EngineService:
                   "Mistake": "Fejl", "Blunder": "Alvorlig fejl", "Forced": "Tvunget træk", "Uncertain": "Usikker vurdering"}
         label = labels.get(assessment["classification"]) if language == "da" else assessment["classification"]
         text = f"{label}. {move_idea(facts, language)}"
+        if assessment["classification"] in ("Best", "Excellent", "Good") and facts["capture"]:
+            captured_piece = facts.get("captured_piece") or "pawn"
+            if language == "da":
+                captured_piece = {"pawn": "bonde", "knight": "springer", "bishop": "løber", "rook": "tårn", "queen": "dronning"}.get(captured_piece, "brik")
+            difference = assessment["loss_cp"] / 100
+            if language == "da":
+                if facts.get("legal_reply_captures"):
+                    explanation = (f"Du slår en {captured_piece}, og selv efter {facts['legal_reply_captures'][0]} "
+                                   f"vurderer motoren trækket kun {difference:.1f} bonde under sit bedste valg.")
+                else:
+                    explanation = (f"Du slår en {captured_piece}, som ikke straks kan slås tilbage på {facts['to']}; "
+                                   f"du vinder materiale, mens trækket holder sig {difference:.1f} bonde fra motorens bedste valg.")
+            elif facts.get("legal_reply_captures"):
+                explanation = (f"You take a {captured_piece}; even after {facts['legal_reply_captures'][0]}, "
+                               f"the engine rates the move only {difference:.1f} pawns below its top choice.")
+            else:
+                explanation = (f"You take a {captured_piece} with no immediate legal recapture on {facts['to']}, "
+                               f"so the material gain holds while the move stays {difference:.1f} pawns from the engine's top choice.")
+            text = f"{label}. {explanation}"
         after = board.copy()
         after.push(move)
         resulting = observations(after)
@@ -192,9 +211,22 @@ class EngineService:
             elif facts.get("legal_reply_captures"):
                 consequence = (f"Modstanderen kan lovligt slå din brik på {facts['to']}. Undersøg hele byttefølgen." if language == "da" else
                                f"The opponent has a legal capture of the moved piece on {facts['to']}. Examine the full exchange.")
+                loss = assessment["loss_cp"] / 100
+                consequence += (f" Det er derfor trækket ligger cirka {loss:.1f} bonde under {best['san']}." if language == "da" else
+                                f" This leaves the move about {loss:.1f} pawns below {best['san']}.")
             else:
-                consequence = ("Motorens søgning vurderer trækket svagere; den præcise strategiske årsag er ikke verificeret." if language == "da" else
-                               "The engine search prefers an alternative; the exact strategic reason has not been independently verified.")
+                reply = played.get("pv", [])[1] if len(played.get("pv", [])) > 1 else None
+                loss = assessment["loss_cp"] / 100
+                if language == "da":
+                    consequence = (f"Motorens bedste valg var {best['san']}. Dens bedste fortsættelse efter dit træk er "
+                                   f"{reply}; trækket giver cirka {loss:.1f} bonde i vurdering sammenlignet med bedste valg."
+                                   if reply else
+                                   f"Motorens bedste valg var {best['san']}; dit træk giver cirka {loss:.1f} bonde i vurdering.")
+                else:
+                    consequence = (f"The engine's top choice was {best['san']}. Its strongest reply to your move is {reply}; "
+                                   f"your move gives up about {loss:.1f} pawns of evaluation compared with that choice."
+                                   if reply else
+                                   f"The engine's top choice was {best['san']}; your move gives up about {loss:.1f} pawns of evaluation.")
             text = f"{label}. {consequence}"
         return {**assessment, "text": text, "fen": board.fen(), "move": move.uci(), "facts": facts,
                 "played": played, "best": best, "alternatives": alternatives["candidates"],

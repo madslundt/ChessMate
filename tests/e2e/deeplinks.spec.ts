@@ -306,6 +306,19 @@ test('finished game shows counts and opens its classified review before chat', a
   const blunder = page.getByRole('button').filter({ hasText: 'g4' }).filter({ hasText: 'Blunder' });
   await expect(blunder).toContainText('Check the threat to your king');
   await blunder.click();
+  const filters = page.getByRole('group', { name: 'Review game', exact: true });
+  const detail = page.locator('.review-decision');
+  for (const label of ['Blunder · 1', 'All moves · 2']) {
+    await filters.getByRole('button', { name: label, exact: true }).click();
+    await expect(detail).toContainText('g4 · Blunder');
+  }
+  await filters.getByRole('button', { name: 'Good · 1', exact: true }).click();
+  await expect(detail).toHaveCount(0);
+  await expect(blunder).toHaveCount(0);
+  await filters.getByRole('button', { name: 'All moves · 2', exact: true }).click();
+  await expect(blunder).toBeVisible();
+  await expect(detail).toHaveCount(0);
+  await blunder.click();
   // A review starts before the decision so the player can inspect the threat.
   await expect(page.locator('[data-square="g2"] [data-piece="wP"]')).toHaveCount(1);
   await expect(page.locator('[data-square="g4"] [data-piece="wP"]')).toHaveCount(0);

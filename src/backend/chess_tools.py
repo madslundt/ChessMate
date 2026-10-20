@@ -149,14 +149,22 @@ def move_idea(facts: dict, language: str = "en") -> str:
         if facts["castle"]: return "Rokaden flytter kongen og bringer tårnet tættere på centrum."
         if facts["promotion"]: return "Bonden forvandles og giver en ny officer."
         if facts["check"]: return "Trækket giver skak, så modstanderen skal reagere."
-        if facts["capture"]: return "Trækket slår en brik; undersøg modstanderens svar."
+        if facts["capture"]:
+            captured = {"pawn": "bonde", "knight": "springer", "bishop": "løber", "rook": "tårn", "queen": "dronning"}.get(facts.get("captured_piece"), "brik")
+            if facts.get("legal_reply_captures"):
+                return f"Trækket slår en {captured}, men modstanderen kan straks slå tilbage på {facts['to']}."
+            return f"Trækket slår en {captured}, som ikke straks kan slås tilbage på {facts['to']}; du vinder materiale."
         if facts["develops_minor"]: return "Trækket udvikler en let officer fra baglinjen."
         if facts.get("central_control"): return "Trækket giver brikken kontrol over " + ", ".join(facts["central_control"]) + "."
         return "Sammenlign brikkernes aktivitet og modstanderens mulige svar."
     if facts["castle"]: return "Castling moves the king and brings a rook closer to the center."
     if facts["promotion"]: return "The pawn promotes, adding a new piece."
     if facts["check"]: return "This gives check, so the opponent must respond to the king threat."
-    if facts["capture"]: return "This captures a piece; check the opponent's reply before counting material."
+    if facts["capture"]:
+        captured = facts.get("captured_piece") or "piece"
+        if facts.get("legal_reply_captures"):
+            return f"This captures a {captured}, but the opponent can immediately recapture on {facts['to']}."
+        return f"This captures a {captured} with no immediate legal recapture on {facts['to']}, gaining material."
     if facts["develops_minor"]: return "This develops a minor piece from its starting rank."
     if facts.get("central_control"): return "The moved piece controls " + ", ".join(facts["central_control"]) + "."
     return "Compare piece activity and the opponent's strongest reply."

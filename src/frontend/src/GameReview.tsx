@@ -5,7 +5,7 @@ import { api } from './api';
 import { BlunderReview } from './BlunderReview';
 import { ErrorNotice, Spinner } from './components';
 import { useT } from './i18n';
-import { Link } from './navigation';
+import { analysisPath, Link } from './navigation';
 import type { Candidate, Game, Preferences, Review } from './types';
 
 const qualities = ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'] as const;
@@ -54,7 +54,7 @@ export function PostGameSummary({ game }: { game: Game }) {
     <section className="post-game-summary panel" aria-label={t('gameOver')}>
       <h2>{t(outcome)}</h2>
       <QualityCounts game={game} />
-      <Link className="primary-button" href={`/analyze/${encodeURIComponent(game.id)}`}>
+      <Link className="primary-button" href={analysisPath(game.id)}>
         {t('analyzeGame')}
         <ArrowRight size={17} />
       </Link>
@@ -68,6 +68,8 @@ export function GameReview({
   onNavigate,
   onExplore,
   onPreview,
+  onHoverMove,
+  onToggleMove,
   preferences,
 }: {
   game: Game | null;
@@ -76,6 +78,8 @@ export function GameReview({
   onNavigate: (ply: number) => void;
   onExplore: () => void;
   onPreview: (candidate: Candidate, baseFen?: string, rootPly?: number) => void;
+  onHoverMove: (uci: string | null) => void;
+  onToggleMove: (uci: string) => void;
   preferences: Preferences;
 }) {
   const t = useT();
@@ -134,7 +138,14 @@ export function GameReview({
         <>
           <div className="review-filters" role="group" aria-label={t('review')}>
             {(['all', ...qualities] as const).map((q) => (
-              <button key={q} aria-pressed={filter === q} onClick={() => setFilter(q)}>
+              <button
+                key={q}
+                aria-pressed={filter === q}
+                onClick={() => {
+                  setFilter(q);
+                  if (current && q !== 'all' && current.rating !== q) setSelected(null);
+                }}
+              >
                 {t(q === 'all' ? 'allMoves' : q)} ·{' '}
                 {q === 'all' ? moves.length : moves.filter((m) => m.rating === q).length}
               </button>
@@ -193,9 +204,12 @@ export function GameReview({
                 key={move.ply}
                 className={`review-move ${selected === move.ply ? 'current' : ''}`}
                 aria-pressed={selected === move.ply}
+                onPointerEnter={() => onHoverMove(move.uci)}
+                onPointerLeave={() => onHoverMove(null)}
                 onClick={() => {
                   setSelected(move.ply);
-                  onNavigate(move.ply - 1);
+                  onNavigate(move.ply);
+                  onToggleMove(move.uci);
                 }}
               >
                 <strong>

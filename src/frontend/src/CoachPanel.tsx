@@ -24,6 +24,9 @@ interface Props {
   preferences: Preferences;
   exploring: boolean;
   onPreview: (candidate: Candidate, baseFen?: string, rootPly?: number) => void;
+  onHoverMove: (uci: string | null) => void;
+  onToggleMove: (uci: string) => void;
+  highlightedMove?: string | null;
   onNavigate: (ply: number) => void;
   ply: number;
   onAnalysis: (a: Analysis) => void;
@@ -37,6 +40,9 @@ export function CoachPanel({
   preferences,
   exploring,
   onPreview,
+  onHoverMove,
+  onToggleMove,
+  highlightedMove,
   onNavigate,
   ply,
   onAnalysis,
@@ -51,6 +57,7 @@ export function CoachPanel({
     [showCandidates, setShowCandidates] = useState(false),
     [hintLevel, setHintLevel] = useState(0),
     [hint, setHint] = useState(''),
+    [hintMove, setHintMove] = useState<string | null>(null),
     [error, setError] = useState<unknown>(null);
   const controller = useRef<AbortController | null>(null),
     currentFen = useRef(fen),
@@ -62,6 +69,7 @@ export function CoachPanel({
     setAnalyzing(false);
     setShowCandidates(false);
     setHint('');
+    setHintMove(null);
     setHintLevel(0);
     setError(null);
   }, [fen]);
@@ -124,7 +132,7 @@ export function CoachPanel({
       requested = fen;
     setAnalyzing(true);
     try {
-      const result = await api<{ text?: string; hint?: string; fen?: string }>('/hint', {
+      const result = await api<{ text?: string; hint?: string; fen?: string; highlight_move?: string }>('/hint', {
         fen,
         level,
         language: preferences.coach_language,
@@ -132,6 +140,7 @@ export function CoachPanel({
       });
       if (currentFen.current === requested) {
         setHint(result.text || result.hint || '');
+        setHintMove(result.highlight_move || null);
         setHintLevel(level);
         if (level === 4) await compare();
       }
@@ -305,6 +314,9 @@ export function CoachPanel({
             onNavigate={onNavigate}
             onExplore={onExplore}
             onPreview={onPreview}
+            onHoverMove={onHoverMove}
+            onToggleMove={onToggleMove}
+            highlightedMove={highlightedMove}
             preferences={preferences}
           />
         ) : tab === 'moves' ? (
@@ -325,7 +337,13 @@ export function CoachPanel({
                           key={side}
                           disabled={!m}
                           className={ply === index + 1 ? 'current' : ''}
-                          onClick={() => onNavigate(index + 1)}
+                          onPointerEnter={() => m && onHoverMove(m.uci)}
+                          onPointerLeave={() => onHoverMove(null)}
+                          onClick={() => {
+                            if (!m) return;
+                            onNavigate(index + 1);
+                            onToggleMove(m.uci);
+                          }}
                         >
                           {m?.san || '—'}
                           {m?.feedback?.classification && (
@@ -388,7 +406,22 @@ export function CoachPanel({
               {!hint && !showCandidates && <p className="hint-caption">{t('hintsFirst')}</p>}
               {analyzing && <Spinner label={t('thinking')} />}
               {hint && (
-                <div className="hint-note" data-testid="position-hint">
+                <div
+                  className={`hint-note hint-note-selectable${highlightedMove === hintMove ? ' is-highlighted' : ''}`}
+                  data-testid="position-hint"
+                  role={hintMove ? 'button' : undefined}
+                  tabIndex={hintMove ? 0 : undefined}
+                  aria-pressed={hintMove ? highlightedMove === hintMove : undefined}
+                  onPointerEnter={() => hintMove && onHoverMove(hintMove)}
+                  onPointerLeave={() => onHoverMove(null)}
+                  onClick={() => hintMove && onToggleMove(hintMove)}
+                  onKeyDown={(event) => {
+                    if (hintMove && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      onToggleMove(hintMove);
+                    }
+                  }}
+                >
                   <span>
                     {t('hint')} {hintLevel}/4
                   </span>
@@ -403,13 +436,19 @@ export function CoachPanel({
                   {!analysis.candidates.length && <p>{t('noCandidates')}</p>}
                   {analysis.candidates.map((c, i) => (
                     <div className="candidate" key={c.uci}>
-                      <div className="candidate-title">
+                      <button
+                        className={`candidate-title${highlightedMove === c.uci ? ' is-highlighted' : ''}`}
+                        aria-pressed={highlightedMove === c.uci}
+                        onPointerEnter={() => onHoverMove(c.uci)}
+                        onPointerLeave={() => onHoverMove(null)}
+                        onClick={() => onToggleMove(c.uci)}
+                      >
                         <span className="candidate-rank">{i + 1}</span>
                         <strong>{c.san}</strong>
                         {preferences.show_evaluation && (
                           <span className="eval-score">{evaluationText(c.cp, c.mate)}</span>
                         )}
-                      </div>
+                      </button>
                       <p>{c.explanation || c.idea || `${t('candidatePreview')}: ${c.san}`}</p>
                       {preferences.show_pv && (
                         <>

@@ -189,6 +189,18 @@
 .hint-note p {
   margin: 8px 0 0;
 }
+.hint-note-selectable {
+  cursor: pointer;
+}
+.hint-note-selectable:hover,
+.hint-note-selectable:focus-visible,
+.hint-note-selectable.is-highlighted,
+.candidate-title:hover,
+.candidate-title:focus-visible,
+.candidate-title.is-highlighted {
+  background: var(--soft);
+  border-radius: 5px;
+}
 .candidate-list {
   margin-top: 20px;
 }
@@ -201,6 +213,12 @@
   align-items: center;
   gap: 10px;
   font-size: 16px;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
 }
 .candidate-rank {
   font-size: 10px;

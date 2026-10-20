@@ -12,9 +12,10 @@ interface Props {
   onMove: (uci: string) => void;
   disabled?: boolean;
   lastMove?: string;
+  highlightedMove?: string | null;
   arrows?: { startSquare: string; endSquare: string; color: string }[];
 }
-export function Board({ fen, preferences, orientation, onMove, disabled = false, lastMove, arrows = [] }: Props) {
+export function Board({ fen, preferences, orientation, onMove, disabled = false, lastMove, highlightedMove, arrows = [] }: Props) {
   const t = useT(),
     [selected, setSelected] = useState<string | null>(null),
     [held, setHeld] = useState<string | null>(null),
@@ -47,9 +48,10 @@ export function Board({ fen, preferences, orientation, onMove, disabled = false,
     activeSquare && preferences.show_legal_moves ? chess.moves({ square: activeSquare as Square, verbose: true }) : [];
   const glowingSquares = new Set(held ? legalMoves.map((move) => move.to) : []);
   const styles: Record<string, React.CSSProperties> = {};
-  if (lastMove) {
-    styles[lastMove.slice(0, 2)] = { backgroundColor: '#c9cf7090' };
-    styles[lastMove.slice(2, 4)] = { backgroundColor: '#d6dc6d99' };
+  const moveToHighlight = highlightedMove !== undefined ? highlightedMove : lastMove;
+  if (moveToHighlight) {
+    styles[moveToHighlight.slice(0, 2)] = { backgroundColor: '#c9cf7090' };
+    styles[moveToHighlight.slice(2, 4)] = { backgroundColor: '#d6dc6d99' };
   }
   if (chess.isCheck()) {
     const king = chess

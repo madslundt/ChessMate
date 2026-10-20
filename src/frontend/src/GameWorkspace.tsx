@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -29,7 +30,7 @@ import { GameLoading, GameSetup, ImportModal } from './GameDialogs';
 import { useGameWorkspace, type WorkspaceProps } from './useGameWorkspace';
 import { PostGameSummary } from './GameReview';
 import type { Game } from './types';
-import { Link } from './navigation';
+import { analysisPath, Link } from './navigation';
 export function GameWorkspace(props: WorkspaceProps) {
   const { preferences, analysisMode, selectGame } = props;
   const {
@@ -77,6 +78,16 @@ export function GameWorkspace(props: WorkspaceProps) {
     status,
     chess,
   } = useGameWorkspace(props);
+  const [hoveredMove, setHoveredMove] = useState<string | null>(null);
+  const [pinnedMove, setPinnedMove] = useState<string | null | undefined>(undefined);
+  const highlightedMove = hoveredMove ?? pinnedMove;
+  useEffect(() => {
+    setHoveredMove(null);
+    setPinnedMove(undefined);
+  }, [fen]);
+  function toggleHighlightedMove(uci: string) {
+    setPinnedMove((current) => current === uci ? null : uci);
+  }
   if (props.activeGameId && !game) {
     return (
       <GameLoading
@@ -97,10 +108,12 @@ export function GameWorkspace(props: WorkspaceProps) {
         </Link>
       )}
       <PageHeading title={t(analysisMode ? 'analyze' : 'play')} subtitle={analysisMode ? t('analysisHelp') : undefined}>
-        <button className="primary-button" onClick={() => setSetup(true)}>
-          <Plus size={19} />
-          {t('newGame')}
-        </button>
+        {!analysisMode && (
+          <button className="primary-button" onClick={() => setSetup(true)}>
+            <Plus size={19} />
+            {t('newGame')}
+          </button>
+        )}
       </PageHeading>
       <ErrorNotice error={error} onDismiss={() => setError(null)} />
       {notice && (
@@ -185,6 +198,7 @@ export function GameWorkspace(props: WorkspaceProps) {
               preferences={preferences}
               orientation={displayOrientation}
               lastMove={lastMove}
+              highlightedMove={highlightedMove}
               onMove={play}
               disabled={busy || (!explore && (!atLatest || (!analysisMode && !!game && (!isPlayerTurn || finished))))}
             />
@@ -351,6 +365,9 @@ export function GameWorkspace(props: WorkspaceProps) {
           preferences={preferences}
           exploring={!!explore}
           onPreview={preview}
+          onHoverMove={setHoveredMove}
+          onToggleMove={toggleHighlightedMove}
+          highlightedMove={highlightedMove}
           ply={at}
           onNavigate={(p) => {
             setPly(p);
@@ -387,7 +404,7 @@ export function GameWorkspace(props: WorkspaceProps) {
                 {t('export')}
               </button>
               {!analysisMode && !finished && (
-                <Link className="text-button" href={`/analyze/${encodeURIComponent(game.id)}`}>
+                <Link className="text-button" href={analysisPath(game.id)}>
                   {t('analyzeGame')}
                 </Link>
               )}
@@ -395,7 +412,7 @@ export function GameWorkspace(props: WorkspaceProps) {
           )}
         </div>
       </div>
-      {setup && (
+      {setup && !analysisMode && (
         <GameSetup
           analysisMode={analysisMode}
           preferences={preferences}

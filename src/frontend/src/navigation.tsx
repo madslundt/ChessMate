@@ -63,6 +63,9 @@ export function navigate(href: string, replace = false) {
 export function gamePath(game: { id: string; mode: string }) {
   return `/${game.mode === 'analysis' ? 'analyze' : 'play'}/${encodeURIComponent(game.id)}`;
 }
+export function analysisPath(gameId: string) {
+  return `/analyze/${encodeURIComponent(gameId)}`;
+}
 export function learnPath(category = 'all', exerciseId?: string, sessionId?: string | null) {
   const base = category === 'all' && !exerciseId ? '/learn' : `/learn/${category}`;
   return (
