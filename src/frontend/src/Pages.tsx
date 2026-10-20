@@ -1,23 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  ArrowRight,
-  BookOpen,
-  Check,
-  ChevronRight,
-  Clock3,
-  Flame,
-  Gamepad2,
-  Lightbulb,
-  Save,
-  Target,
-  Upload,
-} from 'lucide-react';
+import { Check, ChevronRight, Clock3, Save, Upload } from 'lucide-react';
 import { api } from './api';
 import { Empty, ErrorNotice, Field, PageHeading, Spinner, Toggle } from './components';
 import { useT, type TranslationKey } from './i18n';
-import type { Game, Preferences, Progress } from './types';
+import type { Game, Preferences } from './types';
 import { LlmConnection } from './LlmConnection';
+import { CoachingPreferences } from './CoachingPreferences';
 import { ImportModal } from './GameDialogs';
 import { gamePath, Link } from './navigation';
 export function History({
@@ -94,17 +83,22 @@ export function History({
               <span className="history-piece">{g.player_color === 'white' ? '♔' : '♚'}</span>
               <div>
                 <strong>
-                  {t(g.mode === 'analysis' ? 'freeAnalysis' : g.mode === 'training' ? 'training' : 'computer')}
+                  {t(
+                    g.mode === 'analysis' ? 'freeAnalysis' : g.mode === 'training' ? 'training' : 'computer',
+                  )}
                 </strong>
                 <small>
                   {g.created_at && (
                     <>
-                      {new Date(g.created_at).toLocaleDateString(preferences.language === 'da' ? 'da-DK' : 'en-GB', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}{' '}
+                      {new Date(g.created_at).toLocaleDateString(
+                        preferences.language === 'da' ? 'da-DK' : 'en-GB',
+                        {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        },
+                      )}{' '}
                       ·{' '}
                     </>
                   )}
@@ -151,110 +145,7 @@ export function History({
     </>
   );
 }
-export function ProgressPage({ onLearn }: { onLearn: () => void }) {
-  const t = useT(),
-    progress = useQuery({
-      queryKey: ['progress'],
-      queryFn: () => api<Progress>('/progress'),
-    }),
-    p = progress.data;
-  return (
-    <>
-      <PageHeading title={t('progress')} />
-      <ErrorNotice error={progress.error} />
-      {progress.isPending ? (
-        <Spinner />
-      ) : (
-        p && (
-          <>
-            <div className="progress-stats">
-              {[
-                [Gamepad2, 'games', p.games_played],
-                [Target, 'attempts', p.attempts],
-                [Check, 'accuracy', `${Math.round(p.accuracy * 100)}%`],
-                [Lightbulb, 'hintsUsed', p.hints_used],
-              ].map(([Icon, key, value]) => {
-                const I = Icon as typeof Target;
-                return (
-                  <div className="stat" key={String(key)}>
-                    <I size={21} />
-                    <span>{t(key as TranslationKey)}</span>
-                    <strong>{String(value)}</strong>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="progress-layout">
-              <section className="panel topic-panel">
-                <h2>{t('topics')}</h2>
-                {!p.attempts && <p className="muted">{t('noProgress')}</p>}
-                {p.topics.map((topic) => (
-                  <div className="topic-row" key={topic.topic}>
-                    <div>
-                      <strong>{t(topic.topic as TranslationKey)}</strong>
-                      <span>
-                        {topic.attempts} {t('attempts').toLowerCase()}
-                        <b>{Math.round(topic.accuracy * 100)}%</b>
-                      </span>
-                    </div>
-                    <div className="topic-track">
-                      <span style={{ width: `${topic.accuracy * 100}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </section>
-              <section className="practice-recommendations">
-                <span className="round-icon">
-                  <Flame size={23} />
-                </span>
-                <h2>{t('recommended')}</h2>
-                {p.recommendations.map((r, i) => (
-                  <button className="recommendation" key={i} onClick={onLearn}>
-                    <BookOpen size={20} />
-                    <div>
-                      <strong>{typeof r === 'string' ? r : t((r.topic || 'learn') as TranslationKey)}</strong>
-                      {typeof r !== 'string' && r.reason && <p>{r.reason}</p>}
-                    </div>
-                    <ChevronRight size={18} />
-                  </button>
-                ))}
-                <button className="primary-button" onClick={onLearn}>
-                  {t('startPractice')}
-                  <ArrowRight size={16} />
-                </button>
-              </section>
-            </div>
-            {Array.isArray(p.timeline) && p.timeline.length > 0 && (
-              <section className="panel timeline-panel">
-                <h2>{t('progress')}</h2>
-                <div className="progress-timeline">
-                  {(
-                    p.timeline as {
-                      date: string;
-                      attempts: number;
-                      correct: number;
-                    }[]
-                  )
-                    .slice(-20)
-                    .map((x) => (
-                      <div key={x.date} title={`${x.correct}/${x.attempts}`}>
-                        <span
-                          style={{
-                            height: `${Math.max(5, (100 * x.correct) / x.attempts)}px`,
-                          }}
-                        />
-                        <small>{x.date.slice(5)}</small>
-                      </div>
-                    ))}
-                </div>
-              </section>
-            )}
-          </>
-        )
-      )}
-    </>
-  );
-}
+export { ProgressPage } from './LearningProgress';
 export function SettingsPage({
   preferences,
   onSaved,
@@ -267,11 +158,22 @@ export function SettingsPage({
     [busy, setBusy] = useState(false),
     [error, setError] = useState<unknown>(null),
     [saved, setSaved] = useState(false);
+  const previousPreferences = useRef(preferences);
+  const dirtyFields = useRef(new Set<keyof Preferences>());
   useEffect(() => {
-    setDraft((current) => ({ ...current, theme: preferences.theme }));
-  }, [preferences.theme]);
+    const previous = previousPreferences.current;
+    previousPreferences.current = preferences;
+    // Profiles hydrate after the first render; merge external changes without losing unrelated drafts.
+    const changes = Object.fromEntries(
+      Object.entries(preferences).filter(([key, value]) => !dirtyFields.current.has(key as keyof Preferences) && value !== previous[key as keyof Preferences]),
+    );
+    setDraft((current) => ({ ...current, ...changes }));
+  }, [preferences]);
   function set<K extends keyof Preferences>(k: K, v: Preferences[K]) {
-    setDraft((d) => ({ ...d, [k]: v }));
+    dirtyFields.current.add(k);
+    const manual = ['feedback', 'max_explanation_length', 'show_pv', 'candidate_count'].includes(k);
+    if (manual) dirtyFields.current.add('skill_defaults');
+    setDraft((d) => ({ ...d, [k]: v, ...(manual ? { skill_defaults: false } : {}) }));
     setSaved(false);
   }
   const select = <K extends keyof Preferences>(
@@ -283,7 +185,10 @@ export function SettingsPage({
       <select
         value={String(draft[key])}
         onChange={(e) =>
-          set(key, (typeof draft[key] === 'number' ? Number(e.target.value) : e.target.value) as Preferences[K])
+          set(
+            key,
+            (typeof draft[key] === 'number' ? Number(e.target.value) : e.target.value) as Preferences[K],
+          )
         }
       >
         {options.map(([v, l]) => (
@@ -309,6 +214,8 @@ export function SettingsPage({
           setError(null);
           try {
             const p = await api<Preferences>('/settings', draft, 'PATCH');
+            dirtyFields.current.clear();
+            setDraft(p);
             onSaved(p);
             setSaved(true);
           } catch (e) {
@@ -364,7 +271,6 @@ export function SettingsPage({
             ])}
             {toggle('show_legal_moves', 'legalMoves')}
             {toggle('show_evaluation_bar', 'evaluationBar')}
-            {toggle('auto_computer', 'autoComputer')}
           </div>
         </section>
         <section className="settings-section">
@@ -372,6 +278,14 @@ export function SettingsPage({
             <h2>{t('coaching')}</h2>
           </div>
           <div className="settings-fields">
+            <CoachingPreferences
+              value={draft}
+              onChange={(changes) => {
+                Object.keys(changes).forEach((key) => dirtyFields.current.add(key as keyof Preferences));
+                setDraft((current) => ({ ...current, ...changes }));
+                setSaved(false);
+              }}
+            />
             {select('coaching_mode', 'coachingMode', [
               ['independent', 'independent'],
               ['guided', 'guided'],
@@ -394,6 +308,7 @@ export function SettingsPage({
             {select('complexity', 'complexity', [
               ['beginner', 'beginner'],
               ['intermediate', 'intermediate'],
+              ['advanced', draft.language === 'da' ? 'Øvet' : 'Advanced'],
             ])}
             <Field label={t('maxLength')}>
               <input

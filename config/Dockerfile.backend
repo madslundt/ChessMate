@@ -11,7 +11,7 @@ WORKDIR /app
 COPY src/backend/requirements.lock ./src/backend/requirements.lock
 RUN pip install --no-cache-dir -r src/backend/requirements.lock
 COPY --chown=chessmate:chessmate src/backend ./src/backend
-COPY --chown=chessmate:chessmate scripts/import_exercises.py scripts/validate_exercises.py ./scripts/
+COPY --chown=chessmate:chessmate scripts/import_exercises.py scripts/validate_exercises.py scripts/manage_accounts.py ./scripts/
 USER 10001:10001
 EXPOSE 8000
 CMD ["uvicorn", "src.backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

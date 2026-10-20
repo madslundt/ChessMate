@@ -26,6 +26,8 @@ class Settings:
     llm_temperature: float = field(default_factory=lambda: number("LLM_TEMPERATURE", 0.2, 0, 2))
     llm_reasoning_effort: str = field(default_factory=lambda: os.getenv("LLM_REASONING_EFFORT", "").strip())
     cookie_secure: bool = field(default_factory=lambda: os.getenv("COOKIE_SECURE", "false").lower() == "true")
+    secure_deployment: bool = field(default_factory=lambda: os.getenv("SECURE_DEPLOYMENT", "false").lower() == "true")
+    allow_registration: bool = field(default_factory=lambda: os.getenv("ALLOW_REGISTRATION", "false").lower() == "true")
     allowed_origins: tuple[str, ...] = field(default_factory=lambda: tuple(
         value.strip() for value in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080").split(",") if value.strip()))
 

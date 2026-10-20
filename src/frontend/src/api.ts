@@ -33,6 +33,8 @@ export async function api<T>(path: string, body?: unknown, method?: string, sign
     } catch {
       /* plain upstream failure */
     }
+    if (code === 'authentication_required' && path !== '/profiles' && typeof window !== 'undefined')
+      window.dispatchEvent(new Event('chessmate-auth-required'));
     throw new ApiError(message, response.status, code);
   }
   if (response.status === 204) return undefined as T;
@@ -53,10 +55,15 @@ export async function streamCoach(
   });
   if (!response.ok) {
     let message = 'Coach request failed';
+    let code: string | undefined;
     try {
-      message = (await response.json()).detail || message;
+      const detail = (await response.json()).detail;
+      message = typeof detail === 'string' ? detail : detail?.message || message;
+      code = typeof detail?.code === 'string' ? detail.code : undefined;
     } catch {}
-    throw new ApiError(message, response.status);
+    if (code === 'authentication_required' && typeof window !== 'undefined')
+      window.dispatchEvent(new Event('chessmate-auth-required'));
+    throw new ApiError(message, response.status, code);
   }
   if (!response.body) throw new Error('Streaming is unavailable in this browser');
   const reader = response.body.getReader(),

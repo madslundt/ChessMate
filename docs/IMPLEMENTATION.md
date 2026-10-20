@@ -2,7 +2,63 @@
 
 Updated: 20 October 2026. Final source and verification record. Unchecked environment-dependent checks are not claims of completion. Source implementation, automated verification, and real deployment verification are recorded separately.
 
-## Decisions and dependencies
+## Comprehensive coaching implementation — 20 October 2026
+
+This section is the current source and verification record. Older phases below preserve historical decisions and test counts; they are superseded here.
+
+Implemented:
+
+- Evidence-grounded coaching with causal changes in attacks, defenders, pins, double attacks and skewers; terminal results, illegal recaptures, promotion/stalemate comparisons and conservative material claims. Supported model selections survive discarded unsupported wording; unchecked prose never reaches the answer. Meaning-preserving paraphrases use inspected equivalence rules.
+- Fixed learner/actor perspective, natural-language move resolution, board selection for ambiguity, historical pre-move context, short/deep grading confidence and same-root rechecks. The practice opponent samples searched candidates rather than arbitrary legal errors; levels are not calibrated Elo.
+- Visual teaching throughout feedback, hints, live/saved conversations, candidates, review and solved lessons: FEN-bound arrows/highlights, isolated legal playback, reversible transport, speed, return, candidate result comparisons and consequence/alternative views. Preview-only lines cannot mutate games. Early hints exclude move-bearing evidence.
+- Automatic, coach-first and independent play; private tracked retry; board-based calculation of a candidate, opponent replies and further moves, every-ply accuracy, first-error and final-position feedback, revision-checked first-candidate commit and replayable history.
+- Persistent Socratic notice/identify/calculate/evaluate/reflect state; verified discoveries and simple learner conclusions, escalating help, guided/direct switching, exact saved text/visual/evidence payloads and optimistic concurrency.
+- Separate quick/deep Stockfish workers and bounded owned background jobs: one job worker, four slots, two active jobs per profile, actual UCI cancellation and bounded caching. Whole-game review covers both sides of imports/completed games, deep-verifies critical positions with a 5–20-second budget and commits only against the starting revision. A 15-minute work window supports partial resume.
+- Inspectable pawn structure, backward/outpost candidates, files, space, king safety, activity and pawn levers, plus qualified exchange, prophylaxis and endgame-transition effects. The UI separates board facts from strategic interpretation and compares resulting positions without exaggerating equivalent candidates.
+- Immutable calculation learning events, topic mastery, seven granular observed skills, independent/assisted outcomes, hints/retries and repeated errors. Subsequent actual player move events can match earlier completed practice by position or verified motif; imported/analysis/opponent moves and unreliable grades do not establish transfer.
+- 84 curated exercises including 20 new 3–7-ply defensive/planning/exchange/endgame lessons; sound later-ply alternatives, branch-specific hints and fresh per-ply verification; adaptive personal game lines can extend to nine plies and stop once the teaching consequence is visible.
+- Beginner/intermediate/advanced presets with explicit overrides; text/board/both presentation, independent piece/threat/arrow preferences, animation, speed and automatic return.
+- Optional authenticated deployment using existing password/session tables: interactive provisioning/recovery, salted password hashes, HttpOnly SameSite cookie sessions, expiry/rotation/revocation, password changes, account isolation and bounded attempt limits. Trusted local passwordless profiles remain compatible. Inference keys stay server-side; the proxy replaces client-supplied forwarding identity.
+- Additive migration `28e4cdfddcb2` adds coaching evidence, versioned discovery state and learning events; existing games/preferences remain compatible.
+- Frozen 40-position/120-case teaching benchmark with actual explanation, engine, visual, protected-hint, latency, word-count and provider-source capture, interrupted-run checkpoints, frozen-case validation and a complete-review quality gate.
+
+Principal changed components:
+
+| Boundary | Files and components |
+| --- | --- |
+| Evidence and coaching | `chess_tools.py`, `coach.py`, `coach_facts.py`, `coaching_language.py`, `coaching_state.py`, `coaching_strategy.py`, `coaching_persistence.py`, `coaching_models.py` |
+| Engine, games and API | `engine.py`, `analysis_jobs.py`, `fullgame_analysis.py`, `calculation.py`, `games.py`, `main.py`, `schemas.py`, `views.py` |
+| Learning | `training.py`, `training_progress.py`, `training_attempts.py`, `training_generation.py`, `learning_evidence.py`, `learning_models.py`, `exercises.py`, `exercise_library.json` |
+| Board and visual UI | `Board`, `GameWorkspace`, `useGameWorkspace`, `exploration`, `VariationPlayer`, `VisualExplanation`, `CandidateList`, `CandidateComparison`, `ConsequenceComparison`, `CalculationBoard`, `CalculationPractice` |
+| Coaching, review and learning UI | `CoachPanel`, `CoachMessages`, `useCoachSession`, `SocraticProgress`, `GameReview`, `useFullGameAnalysis`, `BlunderReview`, `Learn`, `LearningProgress`, `CalculationHistory`, `CoachingPreferences`, English/Danish locales |
+| Account security and deployment | `auth.py`, `profile_security.py`, `secure_profiles.py`, `manage_accounts.py`, `SecureProfileAccess`, `AccountSecurity`, `App`, `api`, environment/Compose/Nginx/backend image configuration |
+| Migration and quality | `28e4cdfddcb2_coaching_and_learning_evidence.py`, `benchmark_coaching.py`, `validate_exercises.py`, `expand_curriculum.py`, frozen fixture, backend/unit/browser regressions |
+
+Current verification:
+
+| Check | Result |
+| --- | --- |
+| Backend regression | 241 tests passed in the final nonroot, read-only, network-disabled Python 3.12/Stockfish 17 production image (38.97 seconds). Earlier local Python 3.14 coverage and focused provider/history/cancellation regressions also passed; only existing deprecation warnings remain |
+| Frontend production build, lint and Vitest | Passed; 26 unit tests passed |
+| Browser regression | 177/177 passed in a clean final desktop/tablet/mobile run (5.4 minutes), including secure registration/login/reload/password change/logout/ownership. HTML report preserved at /tmp/chessmate-all-final-green-report/index.html. Twelve focused final integration variants also passed |
+| PostgreSQL | Fresh isolated cluster: upgrade/check/downgrade-base/upgrade/check, no drift; account isolation, CAS conflicts, real Stockfish, exploration, practice, repertoire and durable coaching passed |
+| Curriculum | All 84 lessons passed fresh Stockfish 19 and deployed Stockfish 17 validation, including every authored continuation ply |
+| Real local model | Qwen3.6-35B-A3B Q4_K_M served temporarily on loopback with llama-server; 120 cases captured: 119 validated model responses, one safe invalid-response fallback, zero automatic failures; median 5.8 seconds, p95 6.85 seconds. En passant was recaptured at all three levels after improving its explanation; the original full capture and amendment provenance are retained |
+| Benchmark teaching gate | Human reviews remain unfilled; missing reviews correctly cannot establish teaching-quality acceptance |
+| Dependency security | `npm audit --omit=dev` and `uvx pip-audit -r src/backend/requirements.lock`: no known vulnerabilities |
+| Prescribed scanner | Attempted; npm 404 for unavailable/invalid package `@Codex-flow/cli`. No successful result claimed for that tool |
+| Compose, whitespace and file boundaries | Configuration and diff checks passed; changed source files stay below 500 lines |
+| Running local deployment | Private pre-upgrade database backup created; final images rebuilt and healthy on loopback port 8080, migration at 28e4cdfddcb2. Eight new production browser workflows, final real-Qwen SSE, exact running-source hash comparison for all 42 backend/data/utility files, and private-cache/offline PWA checks passed. Full-stack stop/start passed nine seed groups, four persistence/resume groups and disposable-profile cleanup |
+
+A final review also fixed FEN-only chat losing repetition history: game-bound coaching now reconstructs only the selected historical move stack and explicit variation, recognizes repetition draws, and excludes future actual moves. Terminal discovery asks for a lesson from the finished position.
+
+Live Qwen evaluation found failures that compatible-provider fixtures missed: redundant unchecked prose and extra `text` fields in structured selections. The adapter discards unsupported text, preserves only validated fact selections and explicitly labels corrected grounding. A shorter disclosure-aware context and minimal selection prompt reduced requests from roughly 30 seconds to about four seconds in focused smoke checks; the full capture median was 5.8 seconds. A regression also reproduced and fixed a queued-request cancellation leaking model capacity. Waiting for a model slot is now cancellation-safe. This measures this model/quantization/host, not DGX Spark performance.
+
+Try it: choose **Coach first**, make a move, open **Show on board**, compare candidates, and use **Calculate before moving** to play a predicted branch without changing the game. A verified mistake offers **Retry this position** as tracked private practice. In Analyze, **Analyze all moves** starts cancellable background review; **Deep analysis** uses the separate long-search worker. Switch guided/direct explanations in chat, reload to resume discovery and saved visual evidence, then inspect Progress for calculation replay, topic skills and later matching game decisions. Settings controls skill presets, visual presentation and playback. Account security is enabled explicitly through the setup guide.
+
+The requested software scope is implemented. Final engine validation also caught an intermittent distant-mate versus centipawn search disagreement in an already losing opponent continuation. A bounded third search must converge under the unchanged objective/depth/equivalence rules; unresolved evidence is still rejected. Six fresh deployed-engine repetitions passed. Independent human teaching review and longitudinal learning improvement remain unmeasured, opponent strength is not Elo-calibrated, and physical Safari/iOS devices have not been tested. Open-ended model prose remains deliberately constrained by verified evidence. Temporary model evaluation did not change saved user inference settings. The temporary model server, password-mode test server and test secret were removed after verification; the normal development servers and rebuilt Compose application remain available. These validation limits are not represented as passed quality gates.
+
+## Earlier build decisions and dependencies (historical)
 
 - Empty starting repository; React/TypeScript/Vite frontend and FastAPI/Python backend.
 - Git initialized on `main`; `origin` fetch/push URL is `https://github.com/madslundt/ChessMate.git`. Clone and existing-folder setup instructions are in [README.md](README.md#repository-setup).
@@ -82,9 +138,9 @@ The local model selects identifiers from a verified sentence catalog using JSON.
 - [x] Inspect runtime restrictions: all three services nonroot, all capabilities dropped, no new privileges; app filesystems read-only; only frontend bound at `127.0.0.1:8080`.
 - [x] Stop frontend/backend/database, start again with `up --wait`, and verify exact saved state through real HTTP (nine seed groups and four resume groups).
 - [x] Verify compatible-provider HTTP/SSE protocol and fallback using separate temporary provider/backend containers, with exact board/learner/candidate/variation checks.
-- [ ] Verify real user-supplied model endpoint; none was supplied for this build.
+- [x] Real local Qwen inference subsequently verified; see the current coaching record above.
 
-## Verification evidence
+## Original verification evidence (historical)
 
 | Check | Actual result |
 | --- | --- |
@@ -109,11 +165,11 @@ The local model selects identifiers from a verified sentence catalog using JSON.
 | Required security scanner | `npx @Codex-flow/cli@latest security scan` attempted; npm returned 404 because the uppercase package name is invalid/unavailable. This scan did not run or pass |
 | Real external local-model response | Not tested; requires user endpoint/model |
 
-## Known outstanding work
+## Remaining validation limits
 
-- Browser tests use Chromium with desktop, iPhone, and iPad viewport/device emulation. Physical iPhones/iPads and Safari were not tested.
-- No real Qwen/DGX Spark endpoint was supplied. The actual container-to-container compatible API protocol and failure handling passed, while live model inference quality/compatibility remains unverified.
-- The required named security-scanner package could not be installed; dependency audit and application tests are separate evidence and do not replace that scan.
-- Coaching uses bounded, verified statement selection, with deterministic fallback. It cannot express arbitrary tactical claims or deeper strategic explanations outside its catalog.
-- Difficulty levels are intentionally imperfect practice opponents and are not calibrated to beginner Elo ratings. The curriculum is an initial library; richer topic variety and larger repertoires require additional original or appropriately licensed content.
-- PWA installation on mobile requires HTTPS; offline cached assets do not provide offline server gameplay or analysis.
+- Browser coverage uses desktop/iPhone/iPad Chromium emulation. Physical iOS hardware and Safari remain untested.
+- Real cached Qwen inference and production HTTP/SSE are tested; DGX Spark hardware and independent human teaching quality are not measured. The frozen benchmark keeps unfilled human scores visible.
+- The prescribed scanner package is unavailable; successful dependency audits and application tests are recorded separately.
+- Coaching is grounded in inspectable board/engine statements and checked wording. It cannot verify arbitrary open-ended chess prose or prove an engine's internal strategic reasoning.
+- Opponent levels and learning observations are not calibrated Elo estimates; transfer associations do not prove causal improvement.
+- Mobile PWA installation needs HTTPS. Cached shell assets do not provide offline server gameplay or analysis.

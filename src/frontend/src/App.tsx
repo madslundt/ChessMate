@@ -17,7 +17,9 @@ import {
   UserRound,
   X,
 } from 'lucide-react';
-import { api } from './api';
+import { api, ApiError } from './api';
+import { SecureProfileAccess } from './SecureProfileAccess';
+import { AccountSecurity } from './AccountSecurity';
 import { defaults, type Game, type Page, type Preferences, type User } from './types';
 import { LocaleContext, useT } from './i18n';
 import { ErrorNotice, Spinner } from './components';
@@ -43,10 +45,20 @@ export function App() {
     [themeError, setThemeError] = useState<unknown>(null);
   const profiles = useQuery({
     queryKey: ['profiles'],
-    queryFn: () => api<User[]>('/profiles'),
+    queryFn: () => api<(User & { authenticated?: boolean })[]>('/profiles'),
+    retry: false,
   });
   const user = profiles.data?.find((profile) => profile.id === profileId) ?? null;
   useEffect(() => {
+    const expired = () => { void queryClient.invalidateQueries({ queryKey: ['profiles'] }); };
+    window.addEventListener('chessmate-auth-required', expired);
+    return () => window.removeEventListener('chessmate-auth-required', expired);
+  }, [queryClient]);
+  useEffect(() => {
+    if (profiles.isSuccess && !profileId && profiles.data[0]?.authenticated) {
+      localStorage.setItem(PROFILE_KEY, profiles.data[0].id);
+      setProfileId(profiles.data[0].id);
+    }
     if (profiles.isSuccess && profileId && !profiles.data.some((profile) => profile.id === profileId)) {
       setProfileId(null);
       localStorage.removeItem(PROFILE_KEY);
@@ -85,6 +97,15 @@ export function App() {
     }
     setShowProfiles(false);
   }
+  async function openProfiles() {
+    if (!user?.authenticated) { setShowProfiles(true); return; }
+    try {
+      await api('/profiles/session', undefined, 'DELETE');
+      localStorage.removeItem(PROFILE_KEY);
+      setProfileId(null);
+      queryClient.clear();
+    } catch (failure) { setThemeError(failure); }
+  }
   async function toggleTheme() {
     const previous = preferences;
     setPreferences({ ...preferences, theme: dark ? 'light' : 'dark' });
@@ -122,6 +143,13 @@ export function App() {
         <Spinner label="Chessmate" />
       </div>
     );
+  if (profiles.error instanceof ApiError && profiles.error.code === 'authentication_required')
+    return <LocaleContext.Provider value={preferences.language}><SecureProfileAccess onAuthenticated={(profile) => {
+      localStorage.setItem(PROFILE_KEY, profile.id);
+      setProfileId(profile.id);
+      queryClient.clear();
+      void profiles.refetch();
+    }} /></LocaleContext.Provider>;
   if (profiles.error)
     return (
       <div className="app-loading">
@@ -159,9 +187,9 @@ export function App() {
                 </div>
                 <ShieldCheck size={17} />
               </div>
-              <button className="text-button profile-switch" onClick={() => setShowProfiles(true)}>
+              <button className="text-button profile-switch" onClick={() => void openProfiles()}>
                 <UserRound size={15} />
-                {preferences.language === 'da' ? 'Skift profil' : 'Switch profile'}
+                {user.authenticated ? (preferences.language === 'da' ? 'Log ud' : 'Sign out') : preferences.language === 'da' ? 'Skift profil' : 'Switch profile'}
               </button>
             </div>
           </aside>
@@ -169,8 +197,8 @@ export function App() {
             <header className="app-toolbar">
               <button
                 className="profile-toolbar"
-                onClick={() => setShowProfiles(true)}
-                aria-label={preferences.language === 'da' ? 'Skift profil' : 'Switch profile'}
+                onClick={() => void openProfiles()}
+                aria-label={user.authenticated ? (preferences.language === 'da' ? 'Log ud' : 'Sign out') : preferences.language === 'da' ? 'Skift profil' : 'Switch profile'}
               >
                 <UserRound size={15} />
                 <span>{user.name}</span>
@@ -197,8 +225,10 @@ export function App() {
             )}
             {route.found && page === 'learn' && <Learn preferences={preferences} route={route} />}
             {route.found && page === 'history' && <History onResume={selectGame} preferences={preferences} />}
-            {route.found && page === 'progress' && <ProgressPage onLearn={() => navigate('/learn')} />}
+            {route.found && page === 'progress' && <ProgressPage onLearn={() => navigate('/learn')} preferences={preferences} />}
             {route.found && page === 'settings' && (
+              <>
+              {user.authenticated && <AccountSecurity language={preferences.language} />}
               <SettingsPage
                 preferences={preferences}
                 onSaved={(p) => {
@@ -211,6 +241,7 @@ export function App() {
                   );
                 }}
               />
+              </>
             )}
           </main>
           {showProfiles && (

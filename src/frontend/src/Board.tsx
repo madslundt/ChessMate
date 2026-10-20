@@ -7,15 +7,19 @@ import { X } from 'lucide-react';
 
 interface Props {
   fen: string;
+  boardId?: string;
+  animate?: boolean;
   preferences: Preferences;
   orientation: Color;
+  onSelectSquare?: (square: string) => void;
   onMove: (uci: string) => void;
   disabled?: boolean;
   lastMove?: string;
   highlightedMove?: string | null;
+  targets?: string[];
   arrows?: { startSquare: string; endSquare: string; color: string }[];
 }
-export function Board({ fen, preferences, orientation, onMove, disabled = false, lastMove, highlightedMove, arrows = [] }: Props) {
+export function Board({ fen, preferences, orientation, onMove, disabled = false, lastMove, highlightedMove, targets = [], arrows = [], boardId, animate = true, onSelectSquare }: Props) {
   const t = useT(),
     [selected, setSelected] = useState<string | null>(null),
     [held, setHeld] = useState<string | null>(null),
@@ -53,6 +57,9 @@ export function Board({ fen, preferences, orientation, onMove, disabled = false,
     styles[moveToHighlight.slice(0, 2)] = { backgroundColor: '#c9cf7090' };
     styles[moveToHighlight.slice(2, 4)] = { backgroundColor: '#d6dc6d99' };
   }
+  for (const square of targets.filter((value) => /^[a-h][1-8]$/.test(value))) {
+    styles[square] = { ...styles[square], boxShadow: 'inset 0 0 0 4px #d59431', backgroundColor: '#f2bd5470' };
+  }
   if (chess.isCheck()) {
     const king = chess
       .board()
@@ -76,7 +83,7 @@ export function Board({ fen, preferences, orientation, onMove, disabled = false,
     }
   }
   function hold(square: string) {
-    if (!disabled && !promotion && chess.get(square as Square)?.color === chess.turn()) setHeld(square);
+    if (!onSelectSquare && !disabled && !promotion && chess.get(square as Square)?.color === chess.turn()) setHeld(square);
   }
   function tryMove(from: string, to: string) {
     if (disabled) return false;
@@ -91,6 +98,7 @@ export function Board({ fen, preferences, orientation, onMove, disabled = false,
     return true;
   }
   function click(square: string) {
+    if (onSelectSquare) { onSelectSquare(square); return; }
     if (disabled) return;
     if (selected && tryMove(selected, square)) return;
     const piece = chess.get(square as Square);
@@ -119,16 +127,17 @@ export function Board({ fen, preferences, orientation, onMove, disabled = false,
       data-testid="chessboard"
       aria-label={`${chess.turn() === 'w' ? t('white') : t('black')} ${t('sideToMove')}`}
     >
+      {(arrows.length > 0 || targets.length > 0) && <span className="sr-only">{t('visualLegend')}: {arrows.map((arrow) => `${arrow.startSquare} → ${arrow.endSquare}`).join(', ')}{targets.length ? ` · ${targets.join(', ')}` : ''}</span>}
       <Chessboard
         options={{
-          id: 'chessmate-board',
+          id: boardId || 'chessmate-board',
           position: fen,
           boardOrientation: orientation,
           pieces,
-          allowDragging: !disabled,
+          allowDragging: !disabled && !onSelectSquare,
           allowDrawingArrows: true,
           arrows,
-          canDragPiece: ({ piece }) => !disabled && piece.pieceType[0] === chess.turn(),
+          canDragPiece: ({ piece }) => !disabled && !onSelectSquare && piece.pieceType[0] === chess.turn(),
           onPieceDrag: ({ square }) => {
             if (square) hold(square);
           },
@@ -144,7 +153,7 @@ export function Board({ fen, preferences, orientation, onMove, disabled = false,
           lightSquareStyle: { backgroundColor: palette[0] },
           darkSquareNotationStyle: { color: palette[0], fontSize: 12 },
           lightSquareNotationStyle: { color: '#48634f', fontSize: 12 },
-          animationDurationInMs: 180,
+          animationDurationInMs: animate ? 180 : 0,
           squareRenderer: ({ square, children }) => (
             <div
               role="button"

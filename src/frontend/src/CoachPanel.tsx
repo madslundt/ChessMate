@@ -1,22 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
-import { ChartNoAxesColumnIncreasing, ChevronRight, Lightbulb, MessageCircle, Send, Sparkles } from 'lucide-react';
-import { api, streamCoach } from './api';
-import { useT, type TranslationKey } from './i18n';
-import { evaluationText } from './Board';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { useCoachSession } from './useCoachSession';
+import { ChartNoAxesColumnIncreasing, Lightbulb, MessageCircle, Send, Sparkles } from 'lucide-react';
+import { useT } from './i18n';
+import { CoachMessages } from './CoachMessages';
+import { CandidateList } from './CandidateList';
+import { HintCard } from './HintCard';
+import { ConfidenceBadge } from './ConfidenceBadge';
 import { ErrorNotice, Spinner } from './components';
 import { GameReview } from './GameReview';
-import type { Analysis, Candidate, ChatMessage, Game, Preferences } from './types';
-const fallbackLabels: Record<string, TranslationKey> = {
-  not_configured: 'coachNotConfigured',
-  timeout: 'coachTimeout',
-  authentication: 'coachAuthentication',
-  tls_certificate: 'coachCertificate',
-  connection: 'coachConnection',
-  server_error: 'coachServerError',
-  busy: 'coachBusy',
-  invalid_response: 'coachInvalidResponse',
-};
+import { VisualExplanation } from './VisualExplanation';
+import { ExplanationText } from './ExplanationText';
+import { ConsequenceComparison } from './ConsequenceComparison';
+import { SocraticProgress } from './SocraticProgress';
+const CalculationPractice = lazy(() => import('./CalculationPractice').then((module) => ({ default: module.CalculationPractice })));
+import type { Analysis, Candidate, Color, Game, Preferences, VisualInsight } from './types';
 interface Props {
+  orientation: Color;
+  onPickSquare: (answer: (square: string) => void) => void;
+  onCommitCandidate?: (uci: string, base: string, revision: number) => Promise<void>;
+  onVisual: (insight: VisualInsight) => void;
+  onRetry: (baseFen: string, rootPly?: number) => void;
+  positionPending: boolean;
   reviewMode: boolean;
   onExplore: () => void;
   fen: string;
@@ -33,6 +37,12 @@ interface Props {
   analysis: Analysis | null;
 }
 export function CoachPanel({
+  orientation,
+  onCommitCandidate,
+  onPickSquare,
+  onVisual,
+  onRetry,
+  positionPending,
   reviewMode,
   onExplore,
   fen,
@@ -48,174 +58,24 @@ export function CoachPanel({
   onAnalysis,
   analysis,
 }: Props) {
-  const t = useT(),
-    [tab, setTab] = useState<'coach' | 'moves' | 'review'>(reviewMode ? 'review' : 'coach'),
-    [messages, setMessages] = useState<ChatMessage[]>([]),
-    [question, setQuestion] = useState(''),
-    [busy, setBusy] = useState(false),
-    [analyzing, setAnalyzing] = useState(false),
-    [showCandidates, setShowCandidates] = useState(false),
-    [hintLevel, setHintLevel] = useState(0),
-    [hint, setHint] = useState(''),
-    [hintMove, setHintMove] = useState<string | null>(null),
-    [error, setError] = useState<unknown>(null);
-  const controller = useRef<AbortController | null>(null),
-    currentFen = useRef(fen),
-    scroll = useRef<HTMLDivElement>(null);
+  const t = useT();
+  const [tab, setTab] = useState<'coach' | 'moves' | 'review'>(reviewMode ? 'review' : 'coach');
+  const { messages, question, setQuestion, busy, analyzing, showCandidates, hintLevel, hint, hintMove, hintVisual, calculating, setCalculating, error, setError, scroll, compare, requestHint, send, cancelAnalysis, teachingMode, setTeachingMode, state } = useCoachSession({ fen, game, preferences, exploring, reviewMode, tab, positionPending, onAnalysis });
+  const feedbackPly = game?.moves.slice(0, ply).map((move) => !!move.feedback).lastIndexOf(true) ?? -1;
+  const feedbackMove = game?.moves[feedbackPly];
+  const latest = feedbackMove?.feedback;
+  const feedbackBase = feedbackMove?.before_fen || (feedbackPly === 0 ? game?.initial_fen : game?.moves[feedbackPly - 1]?.fen);
   useEffect(() => {
-    currentFen.current = fen;
-    controller.current?.abort();
-    setBusy(false);
-    setAnalyzing(false);
-    setShowCandidates(false);
-    setHint('');
-    setHintMove(null);
-    setHintLevel(0);
-    setError(null);
-  }, [fen]);
-  useEffect(() => () => controller.current?.abort(), []);
-  useEffect(() => {
-    let cancelled = false;
-    if (!game || exploring || (reviewMode && tab !== 'coach')) return;
-    api<{ messages: ChatMessage[] }>(`/games/${game.id}/conversation?fen=${encodeURIComponent(fen)}`)
-      .then((result) => {
-        if (!cancelled && currentFen.current === fen)
-          setMessages((previous) =>
-            previous.some((m) => m.fen === fen) ? previous : [...previous, ...result.messages],
-          );
-      })
-      .catch(() => {
-        /* Gameplay remains available if saved conversations cannot be loaded. */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [game?.id, fen, exploring, reviewMode, tab]);
-
-  useEffect(() => {
-    scroll.current?.scrollTo({
-      top: scroll.current.scrollHeight,
-      behavior: 'smooth',
-    });
-  }, [messages, busy, hint]);
-  const budget = {
-    time_ms: preferences.analysis_time_ms,
-    depth: preferences.analysis_depth,
-    candidates: preferences.candidate_count,
-  };
-  async function compare() {
-    const requested = fen;
-    setAnalyzing(true);
-    setError(null);
-    try {
-      const result = await api<Analysis>('/analysis', {
-        fen,
-        ...budget,
-        candidates: 3,
-      });
-      if (currentFen.current === requested && result.fen === requested) {
-        onAnalysis(result);
-        setShowCandidates(true);
-      }
-    } catch (e) {
-      if (currentFen.current === requested) setError(e);
-    } finally {
-      if (currentFen.current === requested) setAnalyzing(false);
-    }
-  }
-  async function requestHint() {
-    if (!preferences.progressive_hints) {
-      setHint(t('hintDisabled'));
-      return;
-    }
-    const level = Math.min(hintLevel + 1, 4),
-      requested = fen;
-    setAnalyzing(true);
-    try {
-      const result = await api<{ text?: string; hint?: string; fen?: string; highlight_move?: string }>('/hint', {
-        fen,
-        level,
-        language: preferences.coach_language,
-        ...budget,
-      });
-      if (currentFen.current === requested) {
-        setHint(result.text || result.hint || '');
-        setHintMove(result.highlight_move || null);
-        setHintLevel(level);
-        if (level === 4) await compare();
-      }
-    } catch (e) {
-      if (currentFen.current === requested) setError(e);
-    } finally {
-      if (currentFen.current === requested) setAnalyzing(false);
-    }
-  }
-  async function send(text = question) {
-    if (!text.trim() || busy) return;
-    const requested = fen;
-    controller.current?.abort();
-    const abort = new AbortController();
-    controller.current = abort;
-    const history = messages
-      .filter((m) => m.fen === fen)
-      .slice(-10)
-      .map(({ role, content }) => ({ role, content }));
-    setQuestion('');
-    setError(null);
-    setBusy(true);
-    setMessages((m) => [...m, { role: 'user', content: text, fen }, { role: 'assistant', content: '', fen }]);
-    try {
-      await streamCoach(
-        {
-          fen,
-          ...budget,
-          question: text,
-          game_id: game?.id,
-          revision: game?.revision,
-          explore: exploring,
-          language: preferences.coach_language,
-          history,
-        },
-        (event, data) => {
-          if (currentFen.current !== requested) return;
-          const content = String(data.text || data.content || '');
-          if (event === 'error') {
-            setError(new Error(String(data.message || data.detail || content)));
-            return;
-          }
-          if (event === 'token' || event === 'message' || event === 'done')
-            setMessages((m) => {
-              const last = m[m.length - 1];
-              if (last?.role !== 'assistant' || last.fen !== requested) return m;
-              return [
-                ...m.slice(0, -1),
-                {
-                  ...last,
-                  content: event === 'done' && content ? content : last.content + content,
-                  source: String(data.source || last.source || ''),
-                  fallback_reason:
-                    typeof data.fallback_reason === 'string' ? data.fallback_reason : last.fallback_reason,
-                },
-              ];
-            });
-          else if (event === 'status' && data.source)
-            setMessages((m) => m.map((v, i) => (i === m.length - 1 ? { ...v, source: String(data.source) } : v)));
-        },
-        abort.signal,
-      );
-    } catch (e) {
-      if (!abort.signal.aborted && currentFen.current === requested) setError(e);
-    } finally {
-      if (currentFen.current === requested) setBusy(false);
-    }
-  }
-  const latest = game?.moves
-    .slice(0, ply)
-    .filter((m) => m.feedback)
-    .at(-1)?.feedback;
+    if (exploring || preferences.visual_arrows === 'on_request' || preferences.explanation_mode === 'text' || preferences.coaching_mode === 'independent') return;
+    const currentMessage = messages.at(-1);
+    const feedbackInsights = preferences.hide_best_moves && (latest?.actor === 'opponent' || feedbackMove?.actor === 'computer') ? undefined : latest?.insights;
+    const insights = hintVisual?.insights || (currentMessage?.role === 'assistant' && currentMessage.fen === fen ? currentMessage.insights : undefined) || feedbackInsights;
+    const insight = insights?.find((item) => item.fen === fen);
+    if (insight) onVisual(insight);
+  }, [fen, game?.revision, latest, messages, hintVisual, exploring, preferences.visual_arrows, preferences.explanation_mode, preferences.coaching_mode, preferences.hide_best_moves]);
   const cls = latest?.classification?.toLowerCase();
   const feedbackVisible =
-    preferences.feedback !== 'none' &&
+    !positionPending && preferences.feedback !== 'none' &&
     ((!['mistakes'].includes(preferences.feedback) && preferences.feedback_frequency !== 'mistakes') ||
       ['mistake', 'blunder', 'inaccuracy'].includes(cls || ''));
   useEffect(() => {
@@ -308,6 +168,7 @@ export function CoachPanel({
       >
         {tab === 'review' ? (
           <GameReview
+            orientation={orientation}
             game={game}
             ply={ply}
             exploring={exploring}
@@ -318,6 +179,7 @@ export function CoachPanel({
             onToggleMove={onToggleMove}
             highlightedMove={highlightedMove}
             preferences={preferences}
+            onRetry={onRetry}
           />
         ) : tab === 'moves' ? (
           <div className="moves-panel">
@@ -360,6 +222,9 @@ export function CoachPanel({
         ) : (
           <>
             <div className="coach-scroll" ref={scroll}>
+              <div className="teaching-controls"><label htmlFor="teaching-mode">{t('teachingStyle')}</label><select id="teaching-mode" value={teachingMode} onChange={(event) => setTeachingMode(event.target.value as typeof teachingMode)}><option value="guided">{t('guidedQuestions')}</option><option value="direct">{t('directExplanation')}</option></select>{state && <small role="status">{t('discoveredFacts')}: {state.discovered_ids.length}</small>}</div>
+              {teachingMode === 'guided' && state && <SocraticProgress state={state} />}
+              {teachingMode === 'guided' && <button className="text-button" disabled={busy || positionPending} onClick={() => onPickSquare((square) => void send(square))}>{t('answerOnBoard')}</button>}
               <div className="coach-intro">
                 <span className="round-icon">
                   <MessageCircle size={21} />
@@ -378,113 +243,51 @@ export function CoachPanel({
               )}
               {latest && feedbackVisible && !exploring && (
                 <div className={`feedback-note ${cls || ''}`} data-testid="move-feedback">
+                  {latest.actor === 'opponent' && <small>{t('opponentMove')}</small>}
                   <div>
                     <Sparkles size={16} />
                     <strong>
-                      {cls && ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'].includes(cls)
+                      {cls && ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder', 'forced', 'uncertain'].includes(cls)
                         ? t(cls as 'good')
                         : t('unclassified')}
                     </strong>
                   </div>
-                  <p>{latest.text || latest.explanation || latest.assessment}</p>
+                  <ConfidenceBadge mode={latest.analysis_mode} confidence={latest.confidence} />
+                  <ExplanationText mode={preferences.explanation_mode}><p>{latest.text || latest.explanation || latest.assessment}</p>
+                  {latest.consequence && latest.consequence !== latest.text && <p>{latest.consequence}</p>}</ExplanationText>
+                  {preferences.explanation_mode !== 'text' && <VisualExplanation coaching={latest} onVisual={onVisual} onPreview={onPreview} />}
+                  {feedbackBase && <ConsequenceComparison feedback={latest} base={feedbackBase} preferences={preferences} orientation={orientation} onPreview={onPreview} />}
+                  {feedbackBase && <div className="visual-explanation-actions">
+                    {latest.played && <button className="text-button" onClick={() => onPreview(latest.played!, feedbackBase, feedbackPly)}>{t('watchConsequence')}</button>}
+                    {latest.best && !preferences.hide_best_moves && <button className="text-button" onClick={() => onPreview(latest.best!, feedbackBase, feedbackPly)}>{t('watchAlternative')}</button>}
+                    <button className="text-button" onClick={() => onRetry(feedbackBase, feedbackPly)}>{t('retryPosition')}</button>
+                  </div>}
                   {preferences.feedback === 'detailed' && latest.takeaway && (
                     <p className="takeaway">{latest.takeaway}</p>
                   )}
                 </div>
               )}
               <div className="coach-actions">
-                <button className="outline-button" onClick={requestHint} disabled={analyzing || busy || hintLevel >= 4}>
+                <button className="outline-button" onClick={requestHint} disabled={positionPending || analyzing || busy || hintLevel >= 4}>
                   <Lightbulb size={20} />
                   {hintLevel ? t('nextHint') : t('hint')}
                   {hintLevel > 0 && <small>{hintLevel}/4</small>}
                 </button>
-                <button className="outline-button" onClick={compare} disabled={analyzing}>
+                <button className="outline-button" onClick={() => void compare()} disabled={positionPending || analyzing}>
                   <ChartNoAxesColumnIncreasing size={20} />
                   {t('compare')}
                 </button>
               </div>
+              <div className="coach-actions">
+                <button className="text-button" disabled={positionPending || analyzing} onClick={() => void compare('deep')}>{t('deepAnalysis')}</button>
+                <button className="text-button" aria-expanded={calculating} onClick={() => setCalculating(!calculating)}>{t('calculateFirst')}</button>
+              </div>
+              {calculating && <Suspense fallback={<Spinner label={t('thinking')} />}><CalculationPractice orientation={orientation} key={fen} fen={fen} preferences={preferences} onPreview={onPreview} revision={game?.revision || 0} hintLevel={hintLevel} onCommitCandidate={onCommitCandidate} /></Suspense>}
               {!hint && !showCandidates && <p className="hint-caption">{t('hintsFirst')}</p>}
-              {analyzing && <Spinner label={t('thinking')} />}
-              {hint && (
-                <div
-                  className={`hint-note hint-note-selectable${highlightedMove === hintMove ? ' is-highlighted' : ''}`}
-                  data-testid="position-hint"
-                  role={hintMove ? 'button' : undefined}
-                  tabIndex={hintMove ? 0 : undefined}
-                  aria-pressed={hintMove ? highlightedMove === hintMove : undefined}
-                  onPointerEnter={() => hintMove && onHoverMove(hintMove)}
-                  onPointerLeave={() => onHoverMove(null)}
-                  onClick={() => hintMove && onToggleMove(hintMove)}
-                  onKeyDown={(event) => {
-                    if (hintMove && (event.key === 'Enter' || event.key === ' ')) {
-                      event.preventDefault();
-                      onToggleMove(hintMove);
-                    }
-                  }}
-                >
-                  <span>
-                    {t('hint')} {hintLevel}/4
-                  </span>
-                  <p>{hint}</p>
-                </div>
-              )}
-              {showCandidates && analysis?.fen === fen && (
-                <div className="candidate-list">
-                  <small className="muted">
-                    {t(fen.split(' ')[1] === 'w' ? 'white' : 'black')} {t('sideToMove')}
-                  </small>
-                  {!analysis.candidates.length && <p>{t('noCandidates')}</p>}
-                  {analysis.candidates.map((c, i) => (
-                    <div className="candidate" key={c.uci}>
-                      <button
-                        className={`candidate-title${highlightedMove === c.uci ? ' is-highlighted' : ''}`}
-                        aria-pressed={highlightedMove === c.uci}
-                        onPointerEnter={() => onHoverMove(c.uci)}
-                        onPointerLeave={() => onHoverMove(null)}
-                        onClick={() => onToggleMove(c.uci)}
-                      >
-                        <span className="candidate-rank">{i + 1}</span>
-                        <strong>{c.san}</strong>
-                        {preferences.show_evaluation && (
-                          <span className="eval-score">{evaluationText(c.cp, c.mate)}</span>
-                        )}
-                      </button>
-                      <p>{c.explanation || c.idea || `${t('candidatePreview')}: ${c.san}`}</p>
-                      {preferences.show_pv && (
-                        <>
-                          <code>{c.pv?.slice(0, 6).join(' ')}</code>
-                          {c.risk && <p className="candidate-risk">{c.risk}</p>}
-                        </>
-                      )}
-                      {preferences.show_evaluation && i > 0 && c.cp !== null && analysis.candidates[0].cp !== null && (
-                        <small className="muted">Δ {((c.cp - analysis.candidates[0].cp) / 100).toFixed(2)}</small>
-                      )}
-                      <button className="text-button" onClick={() => onPreview(c)}>
-                        {t('candidatePreview')}
-                        <ChevronRight size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {messages.map((m, i) => (
-                <div className={`chat-message ${m.role}`} key={i}>
-                  <span>
-                    {m.role === 'user' ? t('you') : t('coach')}
-                    {m.fen !== fen && <small> · {t('viewing')}</small>}
-                  </span>
-                  <p>
-                    {m.content ||
-                      (busy && i === messages.length - 1 ? <Spinner label={t('coachThinking')} /> : t('offline'))}
-                  </p>
-                  {m.source && m.source !== 'analyzing' && m.role === 'assistant' && (
-                    <small className="message-source">
-                      {['llm', 'local_llm_verified'].includes(m.source) ? t('sourceLlm') : t('sourceFallback')}
-                      {m.fallback_reason && ` · ${t(fallbackLabels[m.fallback_reason] || 'coachInvalidResponse')}`}
-                    </small>
-                  )}
-                </div>
-              ))}
+              {analyzing && <div className="coach-actions"><Spinner label={t('thinking')} /><button className="text-button" onClick={cancelAnalysis}>{t('cancelAnalysis')}</button></div>}
+              {hint && <HintCard hint={hint} hintLevel={hintLevel} hintMove={hintMove} hintVisual={hintVisual} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onVisual={onVisual} onPreview={onPreview} />}
+              {showCandidates && analysis?.fen === fen && <CandidateList orientation={orientation} analysis={analysis} fen={fen} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onPreview={onPreview} onVisual={onVisual} />}
+              <CoachMessages messages={messages} busy={busy || positionPending} fen={fen} preferences={preferences} onVisual={onVisual} onPreview={onPreview} onResolve={(uci) => void send(preferences.coach_language === 'da' ? `Hvad hvis jeg spiller ${uci}?` : `What if I play ${uci}?`)} />
               <ErrorNotice error={error} onDismiss={() => setError(null)} />
             </div>
             <form
@@ -500,6 +303,7 @@ export function CoachPanel({
               <textarea
                 id="coach-question"
                 placeholder={t('ask')}
+                disabled={positionPending}
                 value={question}
                 rows={1}
                 maxLength={2000}
@@ -515,7 +319,7 @@ export function CoachPanel({
                 type="submit"
                 className="primary-button"
                 aria-label={t('send')}
-                disabled={!question.trim() || busy}
+                disabled={positionPending || !question.trim() || busy}
               >
                 <Send size={19} />
               </button>

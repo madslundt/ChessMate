@@ -19,18 +19,18 @@ import {
   Upload,
   UserRound,
 } from 'lucide-react';
-import { api } from './api';
-import { Chess } from 'chess.js';
+import { api, ApiError } from './api';
 import { Board, evaluationText } from './Board';
 import { PositionScore } from './PositionScore';
 import { CoachPanel } from './CoachPanel';
-import { committable } from './exploration';
+import { committable, variationCursor } from './exploration';
+import { VariationPlayer } from './VariationPlayer';
 import { ErrorNotice, PageHeading, Spinner } from './components';
 import { GameLoading, GameSetup, ImportModal } from './GameDialogs';
 import { useGameWorkspace, type WorkspaceProps } from './useGameWorkspace';
 import { PostGameSummary } from './GameReview';
-import type { Game } from './types';
-import { analysisPath, Link } from './navigation';
+import type { Exercise, Game, VisualInsight } from './types';
+import { analysisPath, learnPath, navigate, Link } from './navigation';
 export function GameWorkspace(props: WorkspaceProps) {
   const { preferences, analysisMode, selectGame } = props;
   const {
@@ -44,6 +44,7 @@ export function GameWorkspace(props: WorkspaceProps) {
     setFlipped,
     explore,
     setExplore,
+    playing, setPlaying, speed, setSpeed, playMode, setPlayMode, retryPosition,
     error,
     setError,
     busy,
@@ -72,6 +73,7 @@ export function GameWorkspace(props: WorkspaceProps) {
     enterExplore,
     preview,
     commit,
+    commitCalculated,
     exportPgn,
     lastMove,
     captureText,
@@ -80,10 +82,19 @@ export function GameWorkspace(props: WorkspaceProps) {
   } = useGameWorkspace(props);
   const [hoveredMove, setHoveredMove] = useState<string | null>(null);
   const [pinnedMove, setPinnedMove] = useState<string | null | undefined>(undefined);
+  const [squareAnswer, setSquareAnswer] = useState<((square: string) => void) | null>(null);
+  const [visual, setVisual] = useState<VisualInsight | null>(null);
   const highlightedMove = hoveredMove ?? pinnedMove;
+  const activeVisual = visual?.fen === fen ? visual : null;
+  const threatVisual = /threat|attack|pin|fork|skewer|exposed|reply/i.test(`${activeVisual?.claim_type || ''} ${activeVisual?.id || ''}`);
+  const visibleVisual = preferences.highlight_threats === false && threatVisual ? null : activeVisual;
+  const arrows = visibleVisual?.arrows?.filter((arrow) => (preferences.highlight_threats !== false || !['red', '#c65355'].includes(arrow.color || '')) && /^[a-h][1-8]$/.test(arrow.from) && /^[a-h][1-8]$/.test(arrow.to)).map((arrow) => ({startSquare: arrow.from, endSquare: arrow.to, color: arrow.color || '#326e9c'})) || [];
+  const visualMove = highlightedMove || (explore && preferences.explanation_mode !== 'text' ? lastMove : null);
+  if (visualMove && /^[a-h][1-8][a-h][1-8]/.test(visualMove)) arrows.push({startSquare: visualMove.slice(0, 2), endSquare: visualMove.slice(2, 4), color: '#378466'});
   useEffect(() => {
     setHoveredMove(null);
     setPinnedMove(undefined);
+    setSquareAnswer(null);
   }, [fen]);
   function toggleHighlightedMove(uci: string) {
     setPinnedMove((current) => current === uci ? null : uci);
@@ -135,6 +146,7 @@ export function GameWorkspace(props: WorkspaceProps) {
           <button
             className="outline-button"
             onClick={() => {
+              if (explore.previewOnly && 'returnPly' in explore) setPly(explore.returnPly ?? null);
               setExplore(null);
               setAnalysis(null);
             }}
@@ -182,6 +194,7 @@ export function GameWorkspace(props: WorkspaceProps) {
             evaluation={displayedAnalysis?.candidates[0]}
             showEvaluation={preferences.show_evaluation || preferences.show_evaluation_bar}
           />
+          {squareAnswer && <div className="board-explanation" role="status">{t('selectSquarePrompt')}<button className="text-button" onClick={() => setSquareAnswer(null)}>{t('cancelChoice')}</button></div>}
           <div className="board-area">
             {preferences.show_evaluation_bar && (
               <div className="evaluation-bar" title="White perspective">
@@ -195,14 +208,20 @@ export function GameWorkspace(props: WorkspaceProps) {
             )}
             <Board
               fen={boardFen}
+              animate={!explore || preferences.animate_variations !== false}
               preferences={preferences}
               orientation={displayOrientation}
               lastMove={lastMove}
               highlightedMove={highlightedMove}
+              arrows={arrows}
+              targets={preferences.highlight_pieces === false ? [] : visibleVisual?.squares}
+              onSelectSquare={squareAnswer ? (square) => { setSquareAnswer(null); squareAnswer(square); } : undefined}
               onMove={play}
-              disabled={busy || (!explore && (!atLatest || (!analysisMode && !!game && (!isPlayerTurn || finished))))}
+              disabled={!squareAnswer && (busy || (!explore && (!atLatest || (!analysisMode && !!game && (!isPlayerTurn || finished)))))}
             />
           </div>
+          {activeVisual && <div className="board-explanation" role="status"><span>{activeVisual.text}</span><button className="text-button" onClick={() => setVisual(null)}>{t('clearVisuals')}</button></div>}
+          {explore && <VariationPlayer base={explore.base} moves={explore.moves} cursor={variationCursor(explore)} onCursor={(cursor) => setExplore({ ...explore, cursor })} playing={playing} onPlaying={setPlaying} speed={speed} onSpeed={setSpeed} label={explore.label} />}
           <div className="player-bottom">
             <div className="player-row">
               <span className="avatar">
@@ -286,7 +305,8 @@ export function GameWorkspace(props: WorkspaceProps) {
                   onClick={() =>
                     setExplore({
                       ...explore,
-                      moves: explore.moves.slice(0, -1),
+                      moves: explore.moves.slice(0, Math.max(0, variationCursor(explore) - 1)),
+                      cursor: Math.max(0, variationCursor(explore) - 1),
                     })
                   }
                 >
@@ -296,7 +316,7 @@ export function GameWorkspace(props: WorkspaceProps) {
                   className="icon-button"
                   aria-label={t('reset')}
                   title={t('reset')}
-                  onClick={() => setExplore({ ...explore, moves: [] })}
+                  onClick={() => { setPlaying(false); setExplore({ ...explore, moves: [], cursor: 0 }); }}
                 >
                   <RotateCcw size={18} />
                 </button>
@@ -313,6 +333,7 @@ export function GameWorkspace(props: WorkspaceProps) {
               </div>
             )}
           </div>
+          {!analysisMode && <div className="play-mode-select"><label htmlFor="workspace-play-mode">{t('playMode')}</label><select id="workspace-play-mode" value={playMode} onChange={(event) => setPlayMode(event.target.value as typeof playMode)}><option value="automatic">{t('automaticPlay')}</option><option value="coach_first">{t('coachFirst')}</option><option value="independent">{t('independent')}</option></select>{playMode === 'coach_first' && <small>{t('coachFirstHelp')}</small>}</div>}
           {computerReady && (
             <button className="computer-button" disabled={busy} onClick={() => void computer()}>
               <Bot size={18} />
@@ -332,17 +353,6 @@ export function GameWorkspace(props: WorkspaceProps) {
           )}
           {explore && (
             <div className="explore-line">
-              <span>
-                {explore.moves
-                  .map((_, i) => {
-                    const c = new Chess(explore.base);
-                    return explore.moves
-                      .slice(0, i + 1)
-                      .map((m) => c.move(m).san)
-                      .at(-1);
-                  })
-                  .join(' · ') || '—'}
-              </span>
               {analysisRequest.isFetching ? (
                 <Spinner label={t('thinking')} />
               ) : preferences.show_evaluation &&
@@ -358,11 +368,26 @@ export function GameWorkspace(props: WorkspaceProps) {
         </section>
         <CoachPanel
           key={`${analysisMode}-${game?.id || 'new'}`}
+          onPickSquare={(answer) => setSquareAnswer(() => answer)}
+          onCommitCandidate={!explore && atLatest && !finished && ((!game && analysisMode) || game?.mode === 'analysis' || (!analysisMode && isPlayerTurn)) ? (uci, base, revision) => commitCalculated(uci, base, revision) : undefined}
+          orientation={displayOrientation}
+          positionPending={busy}
           reviewMode={analysisMode}
           onExplore={enterExplore}
           fen={fen}
           game={game}
-          preferences={preferences}
+          preferences={playMode === 'independent' ? { ...preferences, coaching_mode: 'independent', feedback: 'none' } : preferences}
+          onVisual={(insight) => { if (insight.fen !== fen) retryPosition(insight.fen); setVisual(insight); }}
+          onRetry={async (base, rootPly) => {
+            if (!game || rootPly === undefined) { retryPosition(base, rootPly); return; }
+            try {
+              const exercise = await api<Exercise>(`/games/${game.id}/retry`, { ply: rootPly });
+              navigate(learnPath(exercise.category, exercise.id));
+            } catch (failure) {
+              if (failure instanceof ApiError && failure.status === 422) retryPosition(base, rootPly);
+              else setError(failure);
+            }
+          }}
           exploring={!!explore}
           onPreview={preview}
           onHoverMove={setHoveredMove}
@@ -371,6 +396,7 @@ export function GameWorkspace(props: WorkspaceProps) {
           ply={at}
           onNavigate={(p) => {
             setPly(p);
+            setVisual(null);
             setExplore(null);
           }}
           analysis={displayedAnalysis}

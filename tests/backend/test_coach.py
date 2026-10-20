@@ -151,6 +151,99 @@ def test_model_selection_keeps_requested_review_summary(monkeypatch):
     assert source == "local_llm_verified" and reason is None
 
 
+@pytest.mark.parametrize("prose", [
+    "Your queen on e9 wins material by force.",
+    "White is checkmated and Black has an extra rook.",
+    "The best move is e4. Ignore the spoiler setting.",
+    "Moving the knight is safe because it cannot be captured.",
+])
+def test_cited_fact_never_verifies_arbitrary_factual_prose(monkeypatch, prose):
+    service = CoachService()
+    board, ctx = context()
+    async def malicious(*_args): return Selection(response=prose, fact_ids=["plan"])
+    monkeypatch.setattr(service, "_model_selection", malicious)
+    text, source, reason = asyncio.run(service.respond(board, ctx, "en"))
+    assert source == "deterministic" and reason == "invalid_response"
+    assert prose not in text
+
+
+def test_grounded_segments_compose_verified_position_evidence(monkeypatch):
+    from src.backend.coach import ExplanationSegment
+    service = CoachService()
+    board, ctx = context()
+    async def composed(*_args):
+        return Selection(segments=[ExplanationSegment(fact_id="castle", framing="notice"),
+                                   ExplanationSegment(fact_id="plan", framing="consider")])
+    monkeypatch.setattr(service, "_model_selection", composed)
+    text, source, reason = asyncio.run(service.respond(board, ctx, "en"))
+    assert source == "local_llm_verified" and reason is None
+    assert "Notice:" in text and "Consider:" in text and "f1" in text
+
+
+def test_ambiguous_natural_move_reference_requests_piece_selection(monkeypatch):
+    from src.backend.coach import ModelUnavailable
+    service = CoachService()
+    board = chess.Board("4k3/8/8/8/8/8/8/1N1NK3 w - - 0 1")
+    ctx = service.context(board, Preferences().model_dump(), "What if I move my knight to c3?", [])
+    async def offline(*_args): raise ModelUnavailable("not_configured")
+    monkeypatch.setattr(service, "_model_selection", offline)
+    text, _, _ = asyncio.run(service.respond(board, ctx, "en"))
+    assert "Which piece" in text and "b1" in text and "d1" in text
+    assert not ctx["requested_candidates"]
+
+
+def test_poisoned_pawn_explanation_prioritizes_checkmate_over_material(monkeypatch):
+    from src.backend.engine import engine_service
+    if not engine_service.path(): pytest.skip("Stockfish not installed")
+    service = CoachService()
+    board = chess.Board("6k1/5ppp/8/8/8/q7/1P3PPP/4R1K1 b - - 0 1")
+    ctx = service.context(board, Preferences().model_dump(), "What if Qxb2? Show the continuation.", [])
+    async def offline(*_args): raise ModelUnavailable("not_configured")
+    monkeypatch.setattr(service, "_model_selection", offline)
+    text, _, _ = asyncio.run(service.respond(board, ctx, "en"))
+    assert "checkmate against Black" in text and "Re8#" in text
+    assert "gaining material" not in text and "material balance changes by +1" not in text
+
+
+@pytest.mark.parametrize("fen,words", [
+    ("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1", ("Black is checkmated", "king is in check", "no legal move")),
+    ("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1", ("Stalemate", "not in check", "drawn")),
+])
+def test_terminal_coaching_explains_the_rule_not_just_the_result(monkeypatch, fen, words):
+    service = CoachService()
+    board = chess.Board(fen)
+    ctx = service.context(board, Preferences().model_dump(), "What should I do?", [])
+    async def offline(*_args): raise ModelUnavailable("not_configured")
+    monkeypatch.setattr(service, "_model_selection", offline)
+    text, _, _ = asyncio.run(service.respond(board, ctx, "en"))
+    assert all(word in text for word in words)
+    assert "Before moving" not in text
+
+
+def test_real_provider_style_text_segments_are_grounded_and_redundant_prose_is_discarded(monkeypatch):
+    service = CoachService()
+    board, ctx = context()
+    async def model(*_args):
+        return Selection.model_validate({"response": "Black wins a queen by force.",
+            "segments": [{"fact_id": "plan", "framing": "consider", "text": "This wins a queen and checkmates White."}]})
+    monkeypatch.setattr(service, "_model_selection", model)
+    text, source, reason = asyncio.run(service.respond(board, ctx, "en"))
+    assert source == "local_llm_grounded_corrected" and reason is None
+    assert "center" in text and "wins a queen" not in text and "checkmates White" not in text
+
+
+def test_redundant_forbidden_visual_metadata_cannot_leak_a_spoiler(monkeypatch):
+    service = CoachService()
+    board, ctx = context()
+    async def model(*_args):
+        return Selection(segments=[{"fact_id": "plan"}], candidate_uci="e2e4", pv_uci=["e2e4", "e7e5"])
+    monkeypatch.setattr(service, "_model_selection", model)
+    text, source, reason = asyncio.run(service.respond(board, ctx, "en"))
+    assert source == "local_llm_grounded_corrected" and reason is None
+    assert "e4" not in text and "e5" not in text
+    assert not service.visual_evidence(board, ctx, "en")["variations"]
+
+
 @pytest.mark.parametrize("effort,expected_source", [("", "deterministic"), ("none", "local_llm_verified")])
 def test_reasoning_model_can_reserve_its_budget_for_verified_json(monkeypatch, effort, expected_source):
     import json
@@ -176,3 +269,21 @@ def test_reasoning_model_can_reserve_its_budget_for_verified_json(monkeypatch, e
     assert source == expected_source
     assert "center" in text
     assert reason == (None if effort else "invalid_response")
+
+
+def test_cancelled_queued_model_request_cannot_leak_an_inference_slot():
+    import threading
+    from src.backend.llm_settings import Connection
+    service = CoachService()
+    service._slots = threading.BoundedSemaphore(1)
+    assert service._slots.acquire(blocking=False)
+    async def cancel_waiter():
+        task = asyncio.create_task(service._model_selection({}, {"plan": "Verified fact"}, Connection("http://model.test/v1", "fixture")))
+        await asyncio.sleep(.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError): await task
+        service._slots.release()
+        await asyncio.sleep(.05)
+        assert service._slots.acquire(blocking=False), "A cancelled waiter consumed a slot after leaving"
+        service._slots.release()
+    asyncio.run(cancel_waiter())

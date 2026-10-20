@@ -48,3 +48,50 @@ def test_specific_candidate_starts_from_identical_root():
 
 def test_equivalent_decisively_winning_positions_are_not_blunders():
     assert classify_move(candidate(2000), candidate(1500, uci="d2d4"), depth=15)["classification"] == "Good"
+
+
+def test_serious_grade_is_rechecked_and_unstable_search_is_not_a_confident_blunder(monkeypatch):
+    from src.backend.engine import EngineService
+    service = EngineService()
+    board = chess.Board()
+    calls = []
+    def search(root, time_ms=250, candidates=3, root_moves=None, **kwargs):
+        assert root.fen() == board.fen()
+        calls.append((time_ms, bool(root_moves)))
+        move = root_moves[0] if root_moves else root.parse_san("e4")
+        value = 100 if not root_moves else -300 if time_ms == 100 else 90
+        return {"fen": root.fen(), "candidates": [{"uci": move.uci(), "san": root.san(move), "cp": value,
+                    "mate": None, "depth": 14, "pv": [root.san(move)], "pv_uci": [move.uci()]}]}
+    monkeypatch.setattr(service, "analyze", search)
+    feedback = service.grade(board, board.parse_san("a3"), time_ms=100)
+    assert calls == [(100, False), (100, True), (600, False), (600, True)]
+    assert feedback["rechecked"] and feedback["classification"] == "Uncertain"
+    assert feedback["confidence"] == "unstable_search"
+
+
+def test_deep_search_uses_separate_worker_and_preserves_requested_budget(monkeypatch):
+    from src.backend.engine import EngineService
+    service = EngineService()
+    deep = EngineService(deep_worker=True)
+    service._deep_service = deep
+    received = []
+    def analyze(board, **kwargs):
+        received.append(kwargs)
+        assert not service._lock.locked()
+        return {"fen": board.fen()}
+    monkeypatch.setattr(deep, "analyze", analyze)
+    result = service.analyze(chess.Board(), time_ms=12000, mode="deep")
+    assert received[0]["time_ms"] == 12000 and result["mode"] == "deep"
+
+
+def test_opponent_selects_searched_candidates_instead_of_random_legal_moves(monkeypatch):
+    from src.backend.engine import EngineService
+    service = EngineService()
+    calls = []
+    def analyze(board, **kwargs):
+        calls.append(kwargs)
+        return {"candidates": [{"uci": "e2e4"}, {"uci": "d2d4"}, {"uci": "g1f3"}]}
+    monkeypatch.setattr(service, "analyze", analyze)
+    for difficulty in range(1, 6):
+        assert service.play(chess.Board(), difficulty).uci() in ("e2e4", "d2d4", "g1f3")
+    assert len(calls) == 5

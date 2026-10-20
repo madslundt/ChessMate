@@ -10,7 +10,7 @@ class View(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class UserView(BaseModel):
+class UserView(View):
     id: str
     name: str
     preferences: Preferences
@@ -85,6 +85,8 @@ class ExerciseView(BaseModel):
     objective: str
     description: str
     tags: list[str]
+    move_count: int = 1
+    source_game_id: str | None = None
 
 
 class AttemptView(View):

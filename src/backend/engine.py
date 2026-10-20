@@ -12,11 +12,16 @@ from pathlib import Path
 import chess
 import chess.engine
 
-from .chess_tools import move_facts, move_idea, observations
+from .chess_tools import move_facts, move_idea, move_insights, observations
 from .config import settings
+from .coaching_strategy import candidate_strategy, strategic_facts, strategic_insights
 
 
 class EngineUnavailable(RuntimeError):
+    pass
+
+
+class AnalysisCancelled(RuntimeError):
     pass
 
 
@@ -40,7 +45,7 @@ def classify_move(best: dict, played: dict, forced: bool = False, depth: int = 0
         loss = 0
     elif bm and bm < 0 and pm and pm < 0:
         label, loss = "Good", 0  # Already forced loss: avoid artificial mate-distance penalties.
-    elif pm is not None and pm < 0 and not (bm is not None and bm < 0):
+    elif pm is not None and pm <= 0 and not (bm is not None and bm <= 0):
         label = "Blunder"
     elif loss <= 15:
         label = "Best" if best["uci"] == played["uci"] else "Excellent"
@@ -57,11 +62,13 @@ def classify_move(best: dict, played: dict, forced: bool = False, depth: int = 0
 
 
 class EngineService:
-    def __init__(self):
+    def __init__(self, deep_worker: bool = False):
         self._engine: chess.engine.SimpleEngine | None = None
         self._lock = threading.Lock()
         self._cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
         self._last_failure = 0.0
+        self._deep_service: EngineService | None = None
+        self._deep_worker = deep_worker
 
     def path(self) -> str | None:
         return settings.stockfish_path or shutil.which("stockfish") or next((p for p in (
@@ -89,6 +96,8 @@ class EngineService:
         return observations(board)
 
     def close(self) -> None:
+        if self._deep_service:
+            self._deep_service.close()
         with self._lock:
             if self._engine:
                 try: self._engine.quit()
@@ -96,22 +105,37 @@ class EngineService:
                 self._engine = None
 
     def analyze(self, board: chess.Board, time_ms: int = 250, depth: int | None = None,
-                candidates: int = 3, root_moves: list[chess.Move] | None = None) -> dict:
+                candidates: int = 3, root_moves: list[chess.Move] | None = None, mode: str = "quick",
+                cancel_event: threading.Event | None = None) -> dict:
+        if cancel_event and cancel_event.is_set(): raise AnalysisCancelled("Analysis cancelled")
+        if mode not in ("quick", "deep"): raise ValueError("Unknown analysis mode")
+        # A separate bounded engine keeps an explicit long search off the gameplay worker.
+        if mode == "deep":
+            with self._lock:
+                if self._deep_service is None: self._deep_service = EngineService(deep_worker=True)
+            kwargs = {"cancel_event": cancel_event} if cancel_event is not None else {}
+            result = self._deep_service.analyze(board, time_ms=max(5000, min(20000, time_ms)), depth=depth,
+                candidates=candidates, root_moves=root_moves, **kwargs)
+            result["mode"] = "deep"
+            return result
         if not board.is_valid(): raise ValueError("Invalid chess position")
         if root_moves and any(move not in board.legal_moves for move in root_moves):
             raise ValueError("Illegal root move")
-        time_ms = max(50, min(3000, time_ms))
+        time_ms = max(50, min(20000 if self._deep_worker else 3000, time_ms))
         candidates = max(1, min(3, candidates))
         depth = max(1, min(24, depth)) if depth else None
         key = hashlib.sha256(repr((board.fen(), [m.uci() for m in board.move_stack], time_ms, depth,
                                     candidates, [m.uci() for m in root_moves] if root_moves else None)).encode()).hexdigest()
         result = {"fen": board.fen(), "perspective": "white" if board.turn else "black",
-                  "candidates": [], "observations": observations(board), "source": "stockfish"}
+                  "candidates": [], "observations": observations(board), "source": "stockfish",
+                  "mode": mode, "budget_ms": time_ms, "confidence": "search_estimate"}
+        result["strategic_facts"] = strategic_facts(board)
+        result["strategic_insights"] = strategic_insights(board, board.turn)
         if board.is_game_over(claim_draw=True):
             result["terminal"] = board.outcome(claim_draw=True).termination.name.lower()
             return result
         # A finite queue avoids unlimited worker backlog when many requests arrive.
-        if not self._lock.acquire(timeout=12): raise EngineUnavailable("Engine is busy; retry shortly")
+        if not self._lock.acquire(timeout=2): raise EngineUnavailable("Engine is busy; retry shortly")
         try:
             cached = self._cache.get(key)
             if cached and time.monotonic() - cached[0] < 600:
@@ -119,9 +143,27 @@ class EngineService:
                 return copy.deepcopy(cached[1])
             engine = self._get_engine()
             try:
-                infos = engine.analyse(board, chess.engine.Limit(time=time_ms / 1000, depth=depth),
-                                       multipv=min(candidates, len(root_moves) if root_moves else board.legal_moves.count()),
-                                       root_moves=root_moves)
+                budget = chess.engine.Limit(time=time_ms / 1000, depth=depth)
+                multipv = min(candidates, len(root_moves) if root_moves else board.legal_moves.count())
+                if cancel_event is None:
+                    infos = engine.analyse(board, budget, multipv=multipv, root_moves=root_moves)
+                else:
+                    finished = threading.Event()
+                    with engine.analysis(board, budget, multipv=multipv, root_moves=root_moves) as search:
+                        def watch_cancel():
+                            while not finished.wait(.04):
+                                if cancel_event.is_set():
+                                    search.stop()
+                                    return
+                        watcher = threading.Thread(target=watch_cancel, daemon=True)
+                        watcher.start()
+                        try:
+                            search.wait()
+                            infos = search.multipv
+                        finally:
+                            finished.set()
+                            watcher.join(timeout=.2)
+                    if cancel_event.is_set(): raise AnalysisCancelled("Analysis cancelled")
             except (chess.engine.EngineError, TimeoutError, OSError) as exc:
                 engine.close()
                 self._engine = None
@@ -151,6 +193,9 @@ class EngineService:
                     candidate["similar_to_best"] = candidate["difference_cp"] <= 35
                     if candidate["facts"].get("legal_reply_captures"):
                         candidate["risk"] = "The opponent can legally capture the moved piece; evaluate the exchange rather than assuming it is safe."
+                    candidate["insights"], candidate["variations"] = move_insights(board, candidate)
+                    candidate["strategy"] = candidate_strategy(board, candidate)
+                    candidate["insights"].extend(candidate["strategy"]["effects"])
             result["analysis_key"] = key
             self._cache[key] = (time.monotonic(), copy.deepcopy(result))
             while len(self._cache) > 256: self._cache.popitem(last=False)
@@ -158,62 +203,113 @@ class EngineService:
         finally:
             self._lock.release()
 
-    def grade(self, board: chess.Board, move: chess.Move, time_ms: int = 250, language: str = "en") -> dict:
+    def grade(self, board: chess.Board, move: chess.Move, time_ms: int = 250, language: str = "en", complexity: str = "beginner",
+              mode: str = "quick", cancel_event: threading.Event | None = None) -> dict:
         # Both searches begin at the identical root, share a time/depth budget, and use root POV.
         # One full root search followed by a constrained root search avoids opponent-POV mistakes.
-        alternatives = self.analyze(board, time_ms=time_ms, candidates=3)
+        options = {"mode": mode, "cancel_event": cancel_event} if mode != "quick" or cancel_event is not None else {}
+        alternatives = self.analyze(board, time_ms=time_ms, candidates=3, **options)
         if not alternatives["candidates"]: raise ValueError("Game already over")
-        played = self.analyze(board, time_ms=time_ms, candidates=1, root_moves=[move])["candidates"][0]
+        played = self.analyze(board, time_ms=time_ms, candidates=1, root_moves=[move], **options)["candidates"][0]
         best = alternatives["candidates"][0]
         effective_depth = min(best["depth"], played["depth"])
         assessment = classify_move(best, played, board.legal_moves.count() == 1, effective_depth)
+        initial = assessment["classification"]
+        rechecked = False
+        # Serious feedback must survive a second, larger search of BOTH alternatives at the same root.
+        if mode == "quick" and board.legal_moves.count() > 1 and (initial in ("Mistake", "Blunder") or score_number(played) > score_number(best) + 35):
+            rechecked = True
+            budget = min(3000, max(600, time_ms * 2))
+            alternatives = self.analyze(board, time_ms=budget, candidates=3, **options)
+            played = self.analyze(board, time_ms=budget, candidates=1, root_moves=[move], **options)["candidates"][0]
+            best = alternatives["candidates"][0]
+            effective_depth = min(best["depth"], played["depth"])
+            assessment = classify_move(best, played, False, effective_depth)
+            if (initial in ("Mistake", "Blunder") and assessment["classification"] not in ("Mistake", "Blunder") or
+                    score_number(played) > score_number(best) + 35):
+                assessment.update(classification="Uncertain", confidence="unstable_search")
+            else:
+                assessment["confidence"] = "rechecked_estimate"
         # Independent short searches are noisy. A large disagreement on an identical move is never a blunder.
         if best["uci"] == move.uci() and effective_depth >= 8:
             assessment.update(classification="Best", loss_cp=0, win_chance_loss=0)
+        if mode == "deep" and effective_depth >= 8:
+            rechecked = True
+            if score_number(played) > score_number(best) + 35:
+                assessment.update(classification="Uncertain", confidence="unstable_search")
+            else:
+                assessment["confidence"] = "rechecked_estimate"
         facts = move_facts(board, move)
         labels = {"Best": "Bedste træk", "Excellent": "Fremragende", "Good": "Godt træk", "Inaccuracy": "Unøjagtighed",
                   "Mistake": "Fejl", "Blunder": "Alvorlig fejl", "Forced": "Tvunget træk", "Uncertain": "Usikker vurdering"}
         label = labels.get(assessment["classification"]) if language == "da" else assessment["classification"]
         text = f"{label}. {move_idea(facts, language)}"
-        if assessment["classification"] in ("Best", "Excellent", "Good") and facts["capture"]:
+        if assessment["classification"] in ("Best", "Excellent", "Good") and facts["capture"] and not facts.get("checkmate"):
             captured_piece = facts.get("captured_piece") or "pawn"
             if language == "da":
                 captured_piece = {"pawn": "bonde", "knight": "springer", "bishop": "løber", "rook": "tårn", "queen": "dronning"}.get(captured_piece, "brik")
             difference = assessment["loss_cp"] / 100
             if language == "da":
                 if facts.get("legal_reply_captures"):
-                    explanation = (f"Du slår en {captured_piece}, og selv efter {facts['legal_reply_captures'][0]} "
-                                   f"vurderer motoren trækket kun {difference:.1f} bonde under sit bedste valg.")
+                    explanation = (f"Du slår en {captured_piece}; {facts['legal_reply_captures'][0]} er et lovligt genslag. "
+                                   f"Søgningen vurderer trækket {difference:.1f} bonde under sit bedste valg; undersøg dens variant.")
                 else:
                     explanation = (f"Du slår en {captured_piece}, som ikke straks kan slås tilbage på {facts['to']}; "
-                                   f"du vinder materiale, mens trækket holder sig {difference:.1f} bonde fra motorens bedste valg.")
+                                   f"undersøg andre trusler, før du regner materialet som vundet. Søgningen ligger {difference:.1f} bonde fra sit bedste valg.")
             elif facts.get("legal_reply_captures"):
-                explanation = (f"You take a {captured_piece}; even after {facts['legal_reply_captures'][0]}, "
-                               f"the engine rates the move only {difference:.1f} pawns below its top choice.")
+                explanation = (f"You take a {captured_piece}; {facts['legal_reply_captures'][0]} is a legal recapture. "
+                               f"The search rates your move {difference:.1f} pawns below its top choice; examine its continuation.")
             else:
                 explanation = (f"You take a {captured_piece} with no immediate legal recapture on {facts['to']}, "
-                               f"so the material gain holds while the move stays {difference:.1f} pawns from the engine's top choice.")
+                               f"but other threats still need checking. The move stays {difference:.1f} pawns from the engine's top choice.")
             text = f"{label}. {explanation}"
         after = board.copy()
         after.push(move)
         resulting = observations(after)
         own = "white" if board.turn else "black"
-        exposed = [p for p in resulting["exposed_pieces"] if p["color"] == own]
+        exposed = facts.get("newly_exposed_own", [])
         consequence = ""
+        reply_san, reply_mates = None, False
+        if len(played.get("pv_uci", [])) > 1:
+            reply_move = chess.Move.from_uci(played["pv_uci"][1])
+            if reply_move in after.legal_moves:
+                reply_san = after.san(reply_move)
+                reply_board = after.copy()
+                reply_board.push(reply_move)
+                reply_mates = reply_board.is_checkmate()
         if assessment["classification"] in ("Mistake", "Blunder", "Inaccuracy"):
-            if played.get("mate") is not None and played["mate"] < 0:
-                consequence = ("Motoren finder en tvungen mat mod dig." if language == "da" else
-                               "The engine finds a forced mate against you.")
+            if facts.get("stalemate"):
+                consequence = ("Trækket giver pat: modstanderen står ikke i skak og har ingen lovlige træk. Partiet er remis." if language == "da" else
+                    "This move causes stalemate: the opponent is not in check and has no legal moves. The game is drawn.")
+            elif after.is_insufficient_material():
+                consequence = ("Trækket efterlader utilstrækkeligt materiale til skakmat. Partiet er remis." if language == "da" else
+                    "This move leaves insufficient mating material. The game is drawn.")
+            elif played.get("mate") is not None and played["mate"] <= 0:
+                if reply_mates:
+                    king = chess.square_name(after.king(board.turn))
+                    consequence = (f"Modstanderen har det lovlige matsvar {reply_san}. Din konge på {king} står i skak, og intet lovligt svar ophæver skakken." if language == "da" else
+                        f"The opponent has a legal checkmating reply: {reply_san}. Your king on {king} is in check, and no legal response resolves it.")
+                else:
+                    consequence = ("Motoren finder en tvungen mat mod dig." if language == "da" else
+                                   "The engine finds a forced mate against you.")
+                    if reply_san:
+                        consequence += (f" I motorvarianten svarer modstanderen med {reply_san}." if language == "da" else
+                                        f" In the engine continuation, the opponent replies {reply_san}.")
             elif exposed:
                 squares = ", ".join(p["square"] for p in exposed[:2])
-                consequence = (f"Efter trækket er dine brikker på {squares} angrebet og udækkede. Undersøg slagene." if language == "da" else
-                               f"After this move, your pieces on {squares} are attacked and undefended. Check the possible captures.")
+                removed = [p["square"] for p in facts.get("removed_geometric_support", []) if p["square"] in squares.split(", ")]
+                if removed:
+                    consequence = (f"Ved at flytte fra {facts['from']} fjerner brikken sin geometriske støtte til {', '.join(removed)}. Brikken er nu angrebet og geometrisk udækket; undersøg de lovlige slag." if language == "da" else
+                        f"Moving from {facts['from']} removes the piece's geometric support of {', '.join(removed)}. That piece is now attacked and geometrically undefended; check the legal captures.")
+                else:
+                    consequence = (f"Trækket efterlader dine brikker på {squares} angrebet og geometrisk udækkede; denne kombination var ikke til stede før trækket. Undersøg de lovlige slag." if language == "da" else
+                        f"This move leaves your pieces on {squares} attacked and geometrically undefended; that combination was absent before the move. Check the legal captures.")
             elif facts.get("legal_reply_captures"):
                 consequence = (f"Modstanderen kan lovligt slå din brik på {facts['to']}. Undersøg hele byttefølgen." if language == "da" else
                                f"The opponent has a legal capture of the moved piece on {facts['to']}. Examine the full exchange.")
                 loss = assessment["loss_cp"] / 100
-                consequence += (f" Det er derfor trækket ligger cirka {loss:.1f} bonde under {best['san']}." if language == "da" else
-                                f" This leaves the move about {loss:.1f} pawns below {best['san']}.")
+                consequence += (f" Søgningen vurderer trækket cirka {loss:.1f} bonde under {best['san']}; slaget alene beviser ikke årsagen." if language == "da" else
+                                f" The search rates the move about {loss:.1f} pawns below {best['san']}; that capture alone does not establish the reason.")
             else:
                 reply = played.get("pv", [])[1] if len(played.get("pv", [])) > 1 else None
                 loss = assessment["loss_cp"] / 100
@@ -228,20 +324,31 @@ class EngineService:
                                    if reply else
                                    f"The engine's top choice was {best['san']}; your move gives up about {loss:.1f} pawns of evaluation.")
             text = f"{label}. {consequence}"
+        insights, variations = move_insights(board, played, language)
+        strategy = candidate_strategy(board, played, language, complexity)
+        insights.extend(strategy["effects"])
+        if strategy["effects"] and assessment["classification"] in ("Best", "Excellent", "Good") and not facts["capture"] and not facts["check"]:
+            text = f"{label}. {move_idea(facts, language)} {strategy['plan']}"
+        alternative_lines = []
+        for candidate in alternatives["candidates"]:
+            if candidate["uci"] != move.uci():
+                _, lines = move_insights(board, candidate, language)
+                alternative_lines.extend(lines)
         return {**assessment, "text": text, "fen": board.fen(), "move": move.uci(), "facts": facts,
+                "insights": insights, "variations": variations, "alternative_variations": alternative_lines,
+                "strategy": strategy, "complexity": complexity,
+                "analysis_mode": mode,
+                "rechecked": rechecked, "search_depth": effective_depth,
                 "played": played, "best": best, "alternatives": alternatives["candidates"],
                 "resulting_observations": resulting, "consequence": consequence, "budget_ms": time_ms, "perspective": "white" if board.turn else "black",
                 "takeaway": "Undersøg skakker, slag og trusler før dit næste træk." if language == "da" else "Before moving, look for checks, captures, and threats."}
 
     def play(self, board: chess.Board, difficulty: int = 2) -> chess.Move:
         difficulty = max(1, min(5, difficulty))
-        # Deliberately imperfect move selection; levels are practice settings, not asserted Elo ratings.
-        if difficulty < 5 and random.random() < {1: .55, 2: .32, 3: .15, 4: .04}[difficulty]:
-            legal = list(board.legal_moves)
-            return random.choice(legal)
+        # Sample plausible searched candidates rather than arbitrary legal moves. Practice levels are not Elo ratings.
         result = self.analyze(board, time_ms={1: 60, 2: 100, 3: 180, 4: 350, 5: 700}[difficulty], candidates=3)
         if not result["candidates"]: raise ValueError("No legal move")
-        weights = [1, .6, .3] if difficulty < 4 else [1, .1, .02] if difficulty == 4 else [1, 0, 0]
+        weights = {1: [1, 1, .8], 2: [1, .7, .5], 3: [1, .35, .15], 4: [1, .1, .02], 5: [1, 0, 0]}[difficulty]
         candidate = random.choices(result["candidates"], weights=weights[:len(result["candidates"])])[0]
         return chess.Move.from_uci(candidate["uci"])
 

@@ -7,13 +7,15 @@ from typing import Literal
 
 import chess
 import httpx
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from .chess_tools import move_facts, move_idea, observations, parse_move
+from .chess_tools import move_facts, move_idea, move_insights, observations, parse_move, resolve_move_references
 from .coach_facts import PIECES_DA, build_statements, learner_color, fallback_keys, reveal_requested, show_line, visible_candidates
 from .config import settings, llm_tls_context
 from .engine import EngineUnavailable, engine_service
 from .llm_settings import Connection
+from .coaching_strategy import strategic_insights, candidate_strategy
+from .coaching_language import verified_paraphrase
 
 
 class ModelUnavailable(RuntimeError):
@@ -38,6 +40,13 @@ def model_failure_reason(error: Exception) -> str:
     return "invalid_response"
 
 
+class ExplanationSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    fact_id: str
+    framing: Literal["plain", "notice", "consider", "test", "connect", "reflect"] = "plain"
+    paraphrase: str | None = Field(default=None, max_length=1800, validation_alias=AliasChoices("paraphrase", "text"))
+
+
 class Selection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     fact_ids: list[str] = Field(default_factory=list, max_length=5)
@@ -45,6 +54,35 @@ class Selection(BaseModel):
     pv_uci: list[str] = Field(default_factory=list, max_length=10)
     tone: Literal["explain", "question"] = "explain"
     response: str = Field(default="", max_length=3000)
+    segments: list[ExplanationSegment] = Field(default_factory=list, max_length=8)
+
+
+def grounded_response(selection: Selection, statements: dict, language: str) -> str:
+    """Render evidence references, rejecting ANY factual prose outside verified spans.
+
+    The model controls relevance, order, framing, and composition of dynamic board/engine
+    insights. A fact id alongside unchecked prose is never treated as verification.
+    Legacy prose is accepted only when it exactly reproduces its cited evidence.
+    """
+    if selection.segments:
+        rendered = []
+        for segment in selection.segments:
+            if segment.fact_id not in statements: raise ValueError("Unsupported explanation evidence")
+            prefix = {"plain": "", "notice": "Bemærk: " if language == "da" else "Notice: ",
+                      "consider": "Overvej: " if language == "da" else "Consider: ",
+                      "test": "For at teste idéen: " if language == "da" else "To test the idea: ",
+                      "connect": "Dernæst: " if language == "da" else "Next, ",
+                      "reflect": "Til din overvejelse: " if language == "da" else "For reflection: "}[segment.framing]
+            sentence = verified_paraphrase(segment.paraphrase, statements[segment.fact_id]) if segment.paraphrase else statements[segment.fact_id]
+            rendered.append(prefix + sentence)
+        if selection.response.strip(): raise ValueError("Cannot mix grounded segments and unchecked prose")
+        return " ".join(rendered)
+    if selection.response.strip():
+        cited = " ".join(statements[key] for key in selection.fact_ids)
+        if " ".join(selection.response.split()) != " ".join(cited.split()):
+            raise ValueError("Unverified explanation prose")
+        return cited
+    return ""
 
 
 class CoachService:
@@ -58,13 +96,8 @@ class CoachService:
             except EngineUnavailable: analysis = {"fen": board.fen(), "candidates": [], "source": "unavailable", "observations": observations(board)}
         if analysis["fen"] != board.fen(): raise ValueError("Analysis position does not match coach position")
         # User-specified legal candidate moves can be evaluated, with exact position provenance.
-        requested = []
-        for token in question.split():
-            token = token.strip(".,!?;:()[]\"\'")
-            try:
-                move = parse_move(board, token)
-                if move.uci() not in requested: requested.append(move.uci())
-            except ValueError: continue
+        resolved = resolve_move_references(board, question)
+        requested = resolved["moves"]
         if board.turn == learner_color(board, {"game": game_context or {}}) and any(word in question.lower() for word in ("castle", "rokad")):
             requested.extend(m.uci() for m in board.legal_moves if board.is_castling(m) and m.uci() not in requested)
         candidate_evidence = []
@@ -90,17 +123,32 @@ class CoachService:
         return {"fen": board.fen(), "learner_color": "white" if learner_color(board, {"game": game_context or {}}) else "black", "side_to_move": "white" if board.turn else "black",
                 "legal_moves": [{"uci": m.uci(), "san": board.san(m)} for m in board.legal_moves],
                 "move_history": [m.uci() for m in board.move_stack[-16:]], "analysis": analysis,
-                "requested_candidates": candidate_evidence, "unavailable_piece_choices": unavailable_piece_choices, "phase": analysis.get("observations", {}).get("phase"),
+                "requested_candidates": candidate_evidence, "ambiguous_moves": resolved["ambiguous"],
+                "unavailable_piece_choices": unavailable_piece_choices, "phase": analysis.get("observations", {}).get("phase"),
                 "skill_level": preferences.get("complexity", "beginner"), "preferences": preferences,
                 "game": game_context or {}, "history": history[-8:], "question": question}
 
     def statements(self, board: chess.Board, context: dict, language: str, reveal: bool) -> dict[str, str]:
-        return build_statements(board, context, language, reveal)
+        statements = build_statements(board, context, language, reveal)
+        state = context.get("coaching_state", {})
+        if state.get("acknowledgement"): statements["discovery_acknowledgement"] = state["acknowledgement"]
+        if state.get("mode") == "guided": statements["guided_question"] = state["question"]
+        for insight in strategic_insights(board, context.get("learner_color", "white" if board.turn else "black") == "white",
+                context["preferences"].get("complexity", "beginner"), language):
+            # A pawn-contact suggestion is a concrete move; keep it out of spoiler-protected catalogs.
+            if insight["id"] == "strategy_pawn_breaks" and not reveal: continue
+            statements[insight["id"]] = insight["text"]
+        for index, candidate in enumerate(visible_candidates(context, reveal)):
+            plan = candidate_strategy(board, candidate, language, context["preferences"].get("complexity", "beginner"))
+            for effect_index, effect in enumerate(plan["effects"][:3]):
+                statements[f"strategy_candidate_{index}_{effect_index}"] = effect["text"]
+        return statements
 
     @staticmethod
     def validate_selection(selection: Selection, statements: dict, board: chess.Board, context: dict, reveal: bool) -> None:
         if any(key not in statements for key in selection.fact_ids): raise ValueError("Unsupported coaching statement")
-        if not selection.response.strip() and not selection.fact_ids: raise ValueError("Empty coaching response")
+        if not selection.response.strip() and not selection.fact_ids and not selection.segments: raise ValueError("Empty coaching response")
+        grounded_response(selection, statements, "en")
         candidates = visible_candidates(context, reveal)
         if reveal and not candidates and not context.get("question"):
             candidates = context["analysis"].get("candidates", [])
@@ -118,23 +166,68 @@ class CoachService:
     async def _model_selection(self, context: dict, statements: dict, llm: Connection | None = None) -> Selection:
         llm = llm or Connection(settings.llm_base_url, settings.llm_model, settings.llm_api_key)
         if not llm.base_url or not llm.model: raise ModelUnavailable("not_configured")
-        acquired = await asyncio.to_thread(self._slots.acquire, True, 2)
-        if not acquired: raise ModelUnavailable("busy")
+        deadline = asyncio.get_running_loop().time() + 2
+        # A cancelled to_thread semaphore waiter can acquire later and leak the
+        # slot forever. Poll without blocking so cancellation leaves no waiter.
+        while not self._slots.acquire(blocking=False):
+            if asyncio.get_running_loop().time() >= deadline: raise ModelUnavailable("busy")
+            await asyncio.sleep(.02)
         try:
             instruction = (
                 "You are a patient chess teacher. All chess facts are supplied by a verified engine and legal board tools. "
-                "Answer the user's actual question directly in natural language in the response field. Do not repeat a generic "
-                "hint when it does not answer the question. For ordinary non-chess questions, answer normally. For chess claims, "
-                "use only the verified statement catalog: do not invent position facts, evaluations, moves, or variations. "
-                "If a chess question cannot be answered from the catalog, say what information is missing. "
-                "Select the supporting fact_ids when applicable; these are checked against the catalog. Only reference candidate "
+                "Answer the user's actual question by composing grounded explanation segments from the dynamically generated "
+                "statement catalog. Choose relevant evidence and order it into a clear explanation; avoid unrelated generic advice. "
+                "Every segment must reference a fact_id in the catalog with framing plain, notice, or consider. "
+                "An optional paraphrase may replace an evidence sentence with meaning-preserving wording. Preserve ALL claims, "
+                "moves, squares, numbers, negations and uncertainty qualifications. Approved equivalents include attacked/under attack, "
+                "legal/permitted, immediately/straight away, consider/think about, and this specific line/this particular variation. "
+                "You may add harmless framing such as 'Here is the key observation: '. Never infer a cause from an engine ranking. "
+                "Return only 2 to 4 relevant segments, usually enough to answer directly. Omit response, fact_ids, candidate_uci, "
+                "pv_uci and tone; their defaults are safe and all board visuals are generated server-side from verified evidence. "
+                "Do not copy a principal variation into the JSON. Never write unchecked prose in response; omit response entirely. "
+                "Each segment should contain ONLY fact_id and framing. Do not include a text field or copy any sentence: the application "
+                "renders the cited sentence itself. This keeps your JSON short and accurate. "
+                "If evidence is insufficient select uncertainty. "
+                "Only reference candidate "
                 "moves and PVs supplied in the verified context. General principles are suggestions, and geometric attacks do not "
-                "prove a profitable capture. Return ONLY JSON with response, fact_ids, candidate_uci, pv_uci, tone, for example "
-                '{"response":"The answer is 4.","fact_ids":[],"candidate_uci":null,"pv_uci":[],"tone":"explain"}. '
+                "prove a profitable capture. Return ONLY JSON, for example "
+                '{"segments":[{"fact_id":"plan","framing":"consider"}]}. '
                 "Use question tone for Socratic coaching."
             )
+            reveal = reveal_requested(context) or not context.get("preferences", {}).get("hide_best_moves", True) if "question" in context else False
+            line_allowed = show_line(context) if context.get("preferences") and "question" in context else False
+            allowed_uci = {candidate["uci"] for candidate in visible_candidates(context, reveal)} if context.get("preferences") and "question" in context else set()
+            compact_keys = ("uci", "san", "cp", "mate", "depth") + (("pv", "pv_uci") if line_allowed else ())
+            compact_candidate = lambda candidate: {key: candidate[key] for key in compact_keys if key in candidate}
+            analysis = context.get("analysis", {})
+            game = context.get("game", {})
+            last = game.get("last_player_decision") or {}
+            feedback = last.get("feedback") or {}
+            compact = {key: context[key] for key in ("fen", "learner_color", "side_to_move", "skill_level", "question") if key in context}
+            compact.update(legal_moves=context.get("legal_moves", []),
+                history=[{"role": message["role"], "content": message["content"][-400:]} for message in context.get("history", [])[-4:]],
+                requested_candidates=[compact_candidate(candidate) for candidate in context.get("requested_candidates", [])[:2]],
+                analysis={"fen": analysis.get("fen"), "source": analysis.get("source"), "perspective": analysis.get("perspective"),
+                          "candidates": [compact_candidate(candidate) for candidate in analysis.get("candidates", []) if candidate["uci"] in allowed_uci][:3]},
+                game={"player_color": game.get("player_color"), "mode": game.get("mode"), "assessment_counts": game.get("assessment_counts", {}),
+                      "last_player_decision": {"san": last.get("san"), "uci": last.get("uci"), "before_fen": last.get("before_fen"),
+                          "classification": feedback.get("classification"), "consequence": feedback.get("consequence", "")[:500]}},
+                coaching_state={key: value for key, value in context.get("coaching_state", {}).items()
+                                if key in ("stage", "mode", "question", "acknowledgement", "discovered_ids")},
+                disclosure={"candidate_moves": reveal, "variations": line_allowed and reveal})
+            # Keep provider prefill bounded; full evidence remains server-side for validation.
+            initial_keys = fallback_keys(context, statements, reveal_requested(context) or not context["preferences"].get("hide_best_moves", True)) if context.get("preferences") and "question" in context else []
+            prioritized = list(dict.fromkeys(initial_keys +
+                [key for key in statements if key.startswith(("discovery_", "guided_", "strategy_candidate_0"))] + list(statements)))
+            catalog, catalog_size = {}, 0
+            for key in prioritized:
+                if key not in statements: continue
+                size = len(key) + len(statements[key])
+                if catalog_size + size > 7000 or len(catalog) >= 18: continue
+                catalog[key] = statements[key]
+                catalog_size += size
             payload = {"model": llm.model, "messages": [{"role": "system", "content": instruction},
-                {"role": "user", "content": json.dumps({"verified_context": context, "statement_catalog": statements})}],
+                {"role": "user", "content": json.dumps({"verified_context": compact, "statement_catalog": catalog})}],
                 "temperature": settings.llm_temperature, "max_tokens": settings.llm_max_tokens, "stream": True}
             if settings.llm_reasoning_effort:
                 payload["reasoning_effort"] = settings.llm_reasoning_effort
@@ -168,21 +261,68 @@ class CoachService:
         reveal = reveal_requested(context) or not preferences.get("hide_best_moves", True)
         statements = self.statements(board, context, language, reveal)
         keys = fallback_keys(context, statements, reveal)
+        if "guided_question" in statements:
+            if "discovery_acknowledgement" in statements: keys.insert(0, "discovery_acknowledgement")
+            if not reveal and not any(key in keys for key in ("previous_assessment", "terminal", "clarify_move")):
+                keys = [key for key in ("discovery_acknowledgement", "guided_question") if key in statements]
+            else: keys = [key for key in keys if key not in ("habit", "question")] + ["guided_question"]
+        topic_terms = {"pawn": ("pawn", "bonde", "structure", "struktur"), "king_safety": ("king safety", "kongens sikker"),
+                       "activity": ("activity", "aktivitet"), "outposts": ("outpost", "forpost"),
+                       "space": ("space", "plads"), "open_files": ("open file", "åben linje"),
+                       "pawn_breaks": ("pawn break", "bondestød")}
+        question = context["question"].lower()
+        strategic_keys = [key for key in statements if key.startswith("strategy_") and not key.startswith("strategy_candidate")]
+        requested_strategy = any(term in question for terms in topic_terms.values() for term in terms)
+        if requested_strategy or "plan" in question:
+            chosen = strategic_keys if "plan" in question else [key for key in strategic_keys if
+                any(term in question for term in topic_terms.get(key.removeprefix("strategy_"), topic_terms["pawn"]))]
+            keys = [key for key in keys if key not in ("habit", "plan")] + chosen[:3]
+        if reveal and preferences.get("complexity") == "advanced":
+            keys += [key for key in statements if key.startswith("strategy_candidate_0_")][:2]
         source = "deterministic"
         fallback_reason = None
         try:
             # Total deadline also bounds servers that send tiny deltas indefinitely.
             request = self._model_selection(context, statements, llm) if llm is not None else self._model_selection(context, statements)
             selection = await asyncio.wait_for(request, timeout=settings.llm_timeout + 2)
+            corrected = False
+            if selection.segments and selection.response.strip():
+                # Real providers sometimes emit redundant prose despite the schema instructions.
+                # Discard every unchecked character; only validated structured claims can reach the user.
+                selection.response = ""
+                corrected = True
+            if not reveal and selection.candidate_uci is not None:
+                selection.candidate_uci = None
+                corrected = True
+            if (not reveal or not show_line(context)) and selection.pv_uci:
+                selection.pv_uci = []
+                corrected = True
+            for segment in selection.segments:
+                if segment.paraphrase and segment.fact_id in statements:
+                    try: verified_paraphrase(segment.paraphrase, statements[segment.fact_id])
+                    except ValueError:
+                        # Keep the selected verified claim, replacing only the unsupported wording.
+                        segment.paraphrase = None
+                        corrected = True
             self.validate_selection(selection, statements, board, context, reveal)
-            if selection.response.strip():
+            mandatory = [key for key in ("terminal", "clarify_move", "outcome_0") if key in statements]
+            if "guided_question" in statements:
+                mandatory += [key for key in ("discovery_acknowledgement", "guided_question") if key in statements]
+            question = context["question"].lower()
+            if any(term in question for term in ("last move", "previous move", "why was", "sidste træk")):
+                mandatory += [key for key in ("previous_assessment", "previous_reason", "previous_consequence") if key in statements]
+            composed = grounded_response(selection, statements, language)
+            if composed and "review" not in statements and not mandatory:
                 max_words = preferences.get("max_explanation_length", 120)
-                text = " ".join(selection.response.split()[:max_words])
-                return text, "local_llm_verified", None
-            keys = list(dict.fromkeys(selection.fact_ids))
+                # Preserve complete statements and their qualifications rather than truncating factual sentences.
+                text = composed if len(composed.split()) <= max_words else " ".join(
+                    statements[segment.fact_id] for segment in selection.segments[:2]) or composed
+                context["response_fact_ids"] = [segment.fact_id for segment in selection.segments] or selection.fact_ids
+                return text, "local_llm_grounded_corrected" if corrected else "local_llm_verified", None
+            keys = list(dict.fromkeys(mandatory + [segment.fact_id for segment in selection.segments] + selection.fact_ids))
             if "review" in statements:
                 keys = list(dict.fromkeys([key for key in ("review", "previous_assessment") if key in statements] + keys))
-            source = "local_llm_verified"
+            source = "local_llm_grounded_corrected" if corrected else "local_llm_verified"
         except (RuntimeError, ValueError, httpx.HTTPError, asyncio.TimeoutError, KeyError, TypeError) as error:
             fallback_reason = model_failure_reason(error)
         max_words = preferences.get("max_explanation_length", 120)
@@ -192,7 +332,20 @@ class CoachService:
             if selected and count + len(sentence.split()) > max_words: break
             selected.append(sentence)
             count += len(sentence.split())
+        context["response_fact_ids"] = keys[:len(selected)]
         return " ".join(selected), source, fallback_reason
+
+    def visual_evidence(self, board: chess.Board, context: dict, language: str) -> dict:
+        reveal = reveal_requested(context) or not context["preferences"].get("hide_best_moves", True)
+        insights, variations = [], []
+        for candidate in visible_candidates(context, reveal):
+            items, lines = move_insights(board, candidate, language)
+            insights.extend(items)
+            insights.extend(candidate_strategy(board, candidate, language, context["preferences"].get("complexity", "beginner"))["effects"])
+            if show_line(context): variations.extend(lines)
+        for insight in strategic_insights(board, context.get("learner_color", "white" if board.turn else "black") == "white", context["preferences"].get("complexity", "beginner"), language):
+            if insight["id"] != "strategy_pawn_breaks" or reveal: insights.append(insight)
+        return {"insights": insights, "variations": variations, "ambiguous_moves": context.get("ambiguous_moves", [])}
 
     def hint(self, board: chess.Board, level: int, language: str = "en", time_ms: int = 250, depth: int | None = None, candidates: int = 3) -> dict:
         analysis = engine_service.analyze(board, candidates=candidates, time_ms=time_ms, depth=depth)
@@ -219,7 +372,7 @@ class CoachService:
 
         if level == 1:
             if facts["check"]:
-                text = "Start med skakker, der skaber en ekstra trussel." if da else "Start with checks that create a second threat."
+                text = "Undersøg først dine lovlige skakker og modstanderens svar." if da else "Start by examining your legal checks and the opponent's replies."
             elif facts["capture"]:
                 text = "Begynd med slag, og se hvad der står tilbage efter modstanderens bedste genslag." if da else "Start with captures, then see what remains after the opponent's best recapture."
             elif facts["castle"]:
@@ -230,8 +383,8 @@ class CoachService:
                 squares = ", ".join(facts["central_control"])
                 text = f"Centrum er vigtigt her; se efter pres på {squares}." if da else f"The center matters here; look for ways to pressure {squares}."
             else:
-                text = (f"Se først på din {piece} på {facts['from']}; den kan forbedres uden at overse modstanderens trusler." if da else
-                        f"Start with your {piece} on {facts['from']}; look for an improvement that still meets the opponent's threats.")
+                text = ("Undersøg først modstanderens trusler, og find derefter en brik at forbedre." if da else
+                        "First check the opponent's threats, then look for a piece you can improve.")
         elif level == 2:
             if facts["check"] and target:
                 text = (f"Din {piece} på {facts['from']} kan give skak og samtidig angribe modstanderens {target_piece} på {target}." if da else
@@ -241,11 +394,11 @@ class CoachService:
                         f"Focus on your {piece} on {facts['from']}; the strongest idea starts with a check.")
             elif facts["capture"]:
                 captured = piece_names.get(facts.get("captured_piece"), "brik") if da else (facts.get("captured_piece") or "piece")
-                text = (f"Fokuser på din {piece} på {facts['from']}: den kan slå en {captured} på {facts['to']}. Vurdér genslaget." if da else
-                        f"Focus on your {piece} on {facts['from']}: it can capture a {captured} on {facts['to']}. Check the recapture.")
+                text = (f"Fokuser på din {piece} på {facts['from']}: undersøg dens slag og mulige genslag." if da else
+                        f"Focus on your {piece} on {facts['from']}: examine its captures and possible recaptures.")
             elif facts["castle"]:
-                text = (f"Undersøg rokade med kongen på {facts['from']}; den bringer kongen i sikkerhed og aktiverer tårnet." if da else
-                        f"Consider castling with the king on {facts['from']}; it improves king safety and activates the rook.")
+                text = (f"Undersøg rokade med kongen på {facts['from']}; sammenlign kongens sikkerhed før og efter." if da else
+                        f"Consider castling with the king on {facts['from']}; compare king safety before and after.")
             elif facts["develops_minor"]:
                 text = (f"Fokuser på din {piece} på {facts['from']}; den kan udvikles til en mere aktiv plads." if da else
                         f"Focus on your {piece} on {facts['from']}; it can develop to a more active square.")
@@ -262,10 +415,15 @@ class CoachService:
             text = f"{best['san']}: {move_idea(facts, language)}"
         side = ("Hvid" if board.turn else "Sort") if da else ("White" if board.turn else "Black")
         text = (f"{side} i trækket: " if da else f"{side} to move: ") + text
-        result = {"fen": board.fen(), "level": level, "text": text, "perspective": "white" if board.turn else "black",
-                  "highlight_move": best["uci"]}
+        result = {"fen": board.fen(), "level": level, "text": text, "perspective": "white" if board.turn else "black"}
+        if level >= 3:
+            result["highlight_move"] = best["uci"]
+            result["insights"], _ = move_insights(board, best, language)
+            if level == 3:
+                result["insights"] = [item for item in result["insights"] if item["claim_type"] in ("legal_move", "board_geometry")]
         if level == 4:
             result["candidates"] = [{**c, "explanation": move_idea(c["facts"], language)} for c in candidates]
+            _, result["variations"] = move_insights(board, best, language)
         return result
 
 

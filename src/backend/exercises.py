@@ -7,6 +7,8 @@ from typing import Any
 
 import chess
 
+from .chess_tools import move_facts, move_idea
+
 CATEGORIES = ("forks", "pins", "skewers", "opening", "middlegame", "endgame")
 LIBRARY_PATH = Path(__file__).with_name("exercise_library.json")
 VALUES = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 100}
@@ -166,6 +168,26 @@ def objective_met(board: chess.Board, move: chess.Move, criterion: dict[str, Any
         return board.piece_type_at(move.from_square) == chess.KING
     if kind == "engine":
         return True
+    if kind == "prevent_mate":
+        if board.is_check(): return False
+        threatened = board.copy(stack=False)
+        threatened.turn = not color
+        def mate_in_one(position: chess.Board) -> bool:
+            for reply in list(position.legal_moves):
+                position.push(reply)
+                mate = position.is_checkmate()
+                position.pop()
+                if mate: return True
+            return False
+        return threatened.is_valid() and mate_in_one(threatened) and not mate_in_one(after)
+    if kind == "escape_check":
+        return board.is_check()  # Legality already proves the moving side's king is safe, including counterchecks.
+    if kind == "passed_pawn":
+        if board.piece_type_at(move.from_square) != chess.PAWN: return False
+        file, rank = chess.square_file(move.to_square), chess.square_rank(move.to_square)
+        return not after.is_stalemate() and not any(abs(chess.square_file(square) - file) <= 1
+            and (chess.square_rank(square) > rank if color else chess.square_rank(square) < rank)
+            for square in after.pieces(chess.PAWN, not color))
     return False
 
 
@@ -193,6 +215,10 @@ def validate_structure(item: dict[str, Any]) -> chess.Board:
 def public_exercise(item: dict[str, Any]) -> dict[str, Any]:
     public = {key: item[key] for key in ("id", "title", "category", "difficulty", "fen", "objective", "tags")}
     public["description"] = item.get("description", _CONCEPT_INTROS["en"][item["category"]])
+    public["move_count"] = len(item["solution"])
+    source_game_id = item.get("evidence", {}).get("source_game_id")
+    if source_game_id:
+        public["source_game_id"] = source_game_id
     return public
 
 
@@ -203,7 +229,7 @@ _DANISH = {
     "develop": ("Udvikl en let officer fra dens udgangsfelt.", "Udvikling bringer dine springere og løbere i spil. Trækket følger princippet og er kontrolleret med skakmotoren."),
     "castle": ("Rokér for at bringe kongen i sikkerhed.", "Rokade flytter kongen væk fra centrum og bringer tårnet i spil. Kontrollér altid, at kongens nye stilling er sikker."),
     "center": ("Ryk en centrumsbonde frem og kæmp om centrum.", "Centrumsbønder kontrollerer vigtige felter og giver officererne plads. Sammenlign altid princippet med den konkrete stilling."),
-    "capture": ("Find en sund erobring af en værdifuld brik.", "Undersøg alle slag, før du vælger en plan. Her giver det kontrollerede slag en konkret fordel; husk også at undersøge modstanderens svar."),
+    "capture": ("Find et slag af en værdifuld brik, som holder i motoranalysen.", "Undersøg alle slag, før du vælger en plan. Motoren foretrækker dette slag, men undersøg stadig modstanderens stærkeste svar, før du vurderer den samlede materialeændring."),
     "mate": ("Sæt modstanderens konge skakmat i ét træk.", "Tag kongens flugtfelter væk og giv derefter skak. Kongen kan hverken flygte, slå den angribende brik eller blokere skakken."),
     "promote": ("Forvandl fribonden uden at sætte modstanderen pat.", "En bonde på sidste række kan blive en dronning. Her har modstanderen stadig lovlige træk efter forvandlingen, så stillingen er ikke pat."),
     "king_activity": ("Aktivér kongen uden at forringe stillingens resultat.", "I bondeslutspil er kongen en aktiv brik. Gå mod vigtige felter, mens du passer på bønderne og modstanderens konge."),
@@ -211,6 +237,9 @@ _DANISH = {
     "engine": ("Find et sundt træk, der følger stillingens plan.", "Sammenlign centrumsindflydelse, udvikling og kongesikkerhed. Motoranalysen bekræfter, at trækket er et sundt valg."),
 }
 _DANISH.update({
+    "prevent_mate": ("Stop modstanderens aktuelle mat i ét træk.", "Før trækket har modstanderen en lovlig mat i ét, hvis vedkommende får trækket. Dit træk fjerner denne mulighed. Motoren kontrollerer også resten af fortsættelsen."),
+    "escape_check": ("Find et sundt svar på skakken, og beregn den næste trussel.", "Du står i skak og skal svare lovligt. Fortsættelsen træner også modstanderens bedste svar, så du vurderer mere end det første forsvarstræk."),
+    "passed_pawn": ("Før fribonden frem, og beregn modstanderens bedste svar.", "Ingen fjendtlig bonde på samme linje eller nabolinjerne står foran bonden. Beregn stadig kongens og officerernes muligheder, før du regner forvandlingen som sikker."),
     "relative_pin": ("Skab en relativ binding af en springer foran dronningen.", "Løberen angriber springeren med dronningen bagved. Springeren må lovligt flytte, men åbner dermed linjen mod den mere værdifulde dronning."),
     "exploit_pin": ("Slå bonden, som en absolut bundet springer tilsyneladende forsvarer.", "Springeren angriber bondens felt, men er bundet til kongen af en langtrækkende brik. Et genslag med springeren ville åbne en skak mod kongen og er derfor ulovligt."),
     "unpin": ("Ophæv den absolutte binding uden at flytte springeren.", "Bondetrækket blokerer løberens diagonal til kongen og angriber samtidig løberen. Springeren er ikke længere absolut bundet."),
@@ -268,11 +297,23 @@ def localized_exercise(item: dict[str, Any], language: str = "en") -> dict[str, 
         return data
     kind = item["criterion"]["kind"]
     objective, explanation = _DANISH[kind]
+    if kind == "hold_corner": explanation = explanation.replace("a8", item["criterion"]["corner"])
+    if kind == "defend":
+        target = item["criterion"]["target"]
+        objective, explanation = objective.replace("d4", target), explanation.replace("d4", target)
+    if kind == "fresh_development":
+        previous = item["criterion"]["previous_square"]
+        objective, explanation = objective.replace("c3", previous), explanation.replace("c3", previous)
     data["description"] = _INTRO_DA.get(kind, _CONCEPT_INTROS["da"][item["category"]])
     data.update(title=f"{_TOPIC_DA[item['category']]} · {item['id'].rsplit('-', 1)[-1]}",
                 objective=objective, explanation=explanation)
     board = chess.Board(item["fen"])
     first = parse_move(board, item["solution"][0])
+    if item.get("evidence", {}).get("source_game_id"):
+        data["title"] = f"Dit parti, træk {board.fullmove_number}"
+        data["explanation"] = move_idea(move_facts(board, first), "da") + " Motoren foretrækker denne fortsættelse i en ny sammenligning fra den oprindelige stilling."
+        if kind == "engine":
+            data["objective"] = objective = "Find en stærkere fortsættelse, og beregn modstanderens bedste svar."
     data["hints"] = ["Undersøg skakker, slag og trusler, før du vælger et træk.", objective,
                      f"Se på {_PIECE_DA[board.piece_type_at(first.from_square)]} på {chess.square_name(first.from_square)}.",
                      f"Prøv {board.san(first)}."]
@@ -303,6 +344,9 @@ def retry_feedback(board: chess.Board, move: chess.Move, criterion: dict[str, An
             return "Landingsfeltet er angrebet. Find en sikker gaffel." if da else "The landing square is attacked. Look for a safe fork."
         return "Følg den viste fortsættelse, og tag derefter den angrebne brik." if da else "Follow the displayed continuation, then collect the attacked piece."
     messages = {
+        "prevent_mate": ("Trækket fjerner ikke den aktuelle mattrussel i ét træk.", "This move does not remove the current mate-in-one threat."),
+        "escape_check": ("Find et lovligt og sundt svar på skakken.", "Find a legal and sound response to the check."),
+        "passed_pawn": ("Før en fribonde frem uden at give pat.", "Advance a passed pawn without causing stalemate."),
         "relative_pin": ("Trækket skaber ingen ny relativ binding mod mere værdifuldt materiale.", "This move creates no new relative pin against a more valuable piece."),
         "exploit_pin": ("Trækket udnytter ikke en bundet briks ulovlige genslag.", "This move does not capture on a square whose pinned defender cannot legally recapture."),
         "unpin": ("Trækket ophæver ikke bindingen, mens den bundne brik bliver stående.", "This move does not break the pin while keeping the pinned piece on its square."),

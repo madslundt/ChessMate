@@ -81,6 +81,7 @@ export function BlunderReview({
           <strong>{t('opponentReply')}:</strong> {reply}
         </p>
       )}
+      {feedback.played && <button className="outline-button" onClick={() => onPreview(feedback.played!)}>{t('watchConsequence')}</button>}
       <h4>{t('reviewBetterMoves')}</h4>
       {analysis.isFetching ? (
         <Spinner label={t('thinking')} />
@@ -104,7 +105,7 @@ export function BlunderReview({
             <li key={candidate.uci}>
               <strong>{candidate.san}</strong>
               {(candidate.explanation || candidate.idea) && <p>{candidate.explanation || candidate.idea}</p>}
-              <button className="outline-button" onClick={() => onPreview({ ...candidate, pv_uci: [candidate.uci] })}>
+              <button className="outline-button" onClick={() => onPreview(candidate)}>
                 {t('previewMove')} {candidate.san}
               </button>
             </li>

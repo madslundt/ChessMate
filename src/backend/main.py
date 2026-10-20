@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from . import auth, games
 from .auth import current_user
-from .chess_tools import move_idea, parse_board
+from .chess_tools import move_idea, move_insights, parse_board
 from .coach import coach_service
 from .config import settings
 from .database import Base, SessionLocal, engine, get_db
@@ -22,6 +22,15 @@ from .schemas import CoachRequest, HintRequest, PositionRequest, Preferences
 from .views import AnalysisView, HintView
 from .training import router as training_router, seed_exercises
 from .llm_settings import router as llm_settings_router, connection_for
+from .calculation import router as calculation_router
+from .coaching_models import CoachingState
+from .coaching_state import advance_discovery, public_state, state_key
+from .coaching_persistence import persist_response
+from .coach_facts import reveal_requested
+from .analysis_jobs import analysis_jobs, router as analysis_jobs_router
+from .fullgame_analysis import router as fullgame_analysis_router
+from .coaching_strategy import candidate_strategy, strategic_insights
+from .secure_profiles import router as secure_profiles_router
 
 
 @asynccontextmanager
@@ -32,6 +41,7 @@ async def lifespan(_app: FastAPI):
     with SessionLocal() as db:
         seed_exercises(db)
     yield
+    analysis_jobs.cancel_all()
     engine_service.close()
 
 
@@ -67,10 +77,14 @@ async def engine_error(_request, exc):
 
 
 api = APIRouter(prefix="/api")
+api.include_router(secure_profiles_router)
 api.include_router(auth.router)
 api.include_router(games.router)
 api.include_router(training_router)
 api.include_router(llm_settings_router)
+api.include_router(calculation_router)
+api.include_router(analysis_jobs_router)
+api.include_router(fullgame_analysis_router)
 
 
 @api.get("/health", tags=["System"])
@@ -92,6 +106,19 @@ def get_settings(user: User = Depends(current_user)) -> dict:
 
 @api.patch("/settings", tags=["Settings"], response_model=Preferences)
 def patch_settings(data: dict, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    if "auto_computer" in data and "play_mode" not in data:
+        data = {**data, "play_mode": "automatic" if data["auto_computer"] else "coach_first"}
+    elif "play_mode" in data:
+        data = {**data, "auto_computer": data["play_mode"] == "automatic"}
+    previous = user.preferences or {}
+    if data.get("skill_defaults", previous.get("skill_defaults", True)) and (
+            data.get("complexity", previous.get("complexity", "beginner")) != previous.get("complexity", "beginner") or
+            data.get("skill_defaults") is True and previous.get("skill_defaults") is False):
+        level = data.get("complexity", previous.get("complexity", "beginner"))
+        presets = {"beginner": (100, "short", False, 1), "intermediate": (180, "detailed", True, 3), "advanced": (300, "detailed", True, 3)}
+        if level in presets:
+            length, feedback, pv, candidates = presets[level]
+            data = {**data, "max_explanation_length": length, "feedback": feedback, "show_pv": pv, "candidate_count": candidates}
     try: preferences = Preferences.model_validate({**(user.preferences or {}), **data})
     except ValidationError as exc: raise HTTPException(422, json.loads(exc.json())) from exc
     user.preferences = preferences.model_dump()
@@ -107,16 +134,21 @@ def position(data: PositionRequest) -> chess.Board:
 @api.post("/analysis", tags=["Analysis"], response_model=AnalysisView)
 def analyze(data: PositionRequest, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     board = position(data)
-    result = engine_service.analyze(board, time_ms=data.time_ms, depth=data.depth, candidates=data.candidates)
+    result = engine_service.analyze(board, time_ms=data.time_ms, depth=data.depth, candidates=data.candidates, mode=data.mode)
     key = result.get("analysis_key")
     if key and not db.get(PositionAnalysis, key):
         # The database is an audit trail; the bounded in-process cache serves hot requests.
         db.add(PositionAnalysis(key=key, fen=board.fen(), evidence=result))
         try: db.commit()
         except Exception: db.rollback()  # Concurrent duplicate cache insert must not fail analysis.
-    language = Preferences.model_validate(user.preferences or {}).coach_language
+    preferences = Preferences.model_validate(user.preferences or {})
+    language = preferences.coach_language
+    result["strategic_insights"] = strategic_insights(board, board.turn, preferences.complexity, language)
     for candidate in result["candidates"]:
         candidate["explanation"] = move_idea(candidate["facts"], language)
+        candidate["strategy"] = candidate_strategy(board, candidate, language, preferences.complexity)
+        candidate["insights"], candidate["variations"] = move_insights(board, candidate, language)
+        candidate["insights"].extend(candidate["strategy"]["effects"])
         if language == "da":
             candidate["risk"] = ("Modstanderen kan lovligt slå den flyttede brik; undersøg hele byttefølgen." if candidate["facts"].get("legal_reply_captures") else
                                  "Undersøg varianten; en kort motorsøgning beviser ikke alle fortsættelser.")
@@ -155,6 +187,16 @@ def coach(data: CoachRequest, user: User = Depends(current_user), db: Session = 
         if not data.explore and selected_ply is None:
             raise HTTPException(409, "The coaching position does not match this game")
         visible_moves = game.moves[:selected_ply] if selected_ply is not None else []
+        if selected_ply is not None:
+            # FEN omits repetition history. Rebuild only the selected past and the
+            # explicitly requested variation, never any subsequent actual moves.
+            try:
+                historical = parse_board(game.initial_fen, [move["uci"] for move in visible_moves] + data.moves)
+            except ValueError:
+                raise HTTPException(409, "The stored coaching move history could not be verified") from None
+            if historical.fen() != board.fen():
+                raise HTTPException(409, "The coaching position does not match its stored move history")
+            board = historical
         # Future actual moves must never contaminate a historical or hypothetical board context.
         player_decisions = [m for m in visible_moves if m.get("feedback") and
                             (game.mode == "analysis" or m.get("color") == game.player_color)]
@@ -180,25 +222,29 @@ def coach(data: CoachRequest, user: User = Depends(current_user), db: Session = 
         history = [{"role": m.role, "content": m.content} for m in reversed(persisted)]
     user_id = user.id
     llm_connection = connection_for(db, user)
+    saved_state = db.get(CoachingState, state_key(user.id, data.game_id, board.fen()))
+    previous_state = dict(saved_state.data) if saved_state else None
 
     async def stream():
         yield sse("status", {"source": "analyzing", "fen": board.fen(), "revision": data.revision})
         try:
             context = await asyncio.to_thread(coach_service.context, board, prefs, data.question, history, game_context)
+            discovery = advance_discovery(board, context, previous_state, data.teaching_mode, language)
+            context["coaching_state"] = discovery
+            yield sse("status", {"source": "explaining", "fen": board.fen(), "revision": data.revision})
             text, source, fallback_reason = await coach_service.respond(board, context, language, llm=llm_connection)
-            # Persist against the exact FEN; no streamed response can update game state.
-            def save_messages():
-                with SessionLocal() as session:
-                    for role, content in (("user", data.question), ("assistant", text)):
-                        session.add(CoachingMessage(user_id=user_id, game_id=data.game_id,
-                                                    fen=board.fen(), role=role, content=content))
-                    session.commit()
-            await asyncio.to_thread(save_messages)
+            # Persist the exact validated visual response, not a reconstructed future analysis.
+            metadata = {"source": source, "fallback_reason": fallback_reason, "fen": board.fen(), "revision": data.revision,
+                        "state": public_state(discovery), "evidence_ids": context.get("response_fact_ids", []),
+                        "analysis_key": context["analysis"].get("analysis_key"),
+                        **coach_service.visual_evidence(board, context, language)}
+            statements = coach_service.statements(board, context, language, reveal_requested(context) or not prefs["hide_best_moves"])
+            metadata["evidence"] = [{"id": key, "text": statements[key]} for key in metadata["evidence_ids"] if key in statements]
+            await asyncio.to_thread(persist_response, SessionLocal, user_id, data.game_id, board.fen(), data.question, text, metadata, discovery)
             for start in range(0, len(text), 28):
                 yield sse("token", {"text": text[start:start + 28], "fen": board.fen()})
                 await asyncio.sleep(0)
-            yield sse("done", {"text": text, "source": source, "fallback_reason": fallback_reason,
-                               "fen": board.fen(), "revision": data.revision})
+            yield sse("done", {"text": text, **metadata})
         except (ValueError, RuntimeError):
             yield sse("error", {"message": "The coaching context could not be verified. Try refreshing this position.", "fen": board.fen()})
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})

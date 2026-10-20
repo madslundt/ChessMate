@@ -1,14 +1,17 @@
 import { useState } from 'react';
+import { useFullGameAnalysis } from './useFullGameAnalysis';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, ChevronRight } from 'lucide-react';
 import { api } from './api';
 import { BlunderReview } from './BlunderReview';
+import { ConsequenceComparison } from './ConsequenceComparison';
+import { ConfidenceBadge } from './ConfidenceBadge';
 import { ErrorNotice, Spinner } from './components';
 import { useT } from './i18n';
 import { analysisPath, Link } from './navigation';
-import type { Candidate, Game, Preferences, Review } from './types';
+import type { Candidate, Color, Game, Preferences, Review } from './types';
 
-const qualities = ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'] as const;
+const qualities = ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder', 'forced', 'uncertain'] as const;
 type Quality = (typeof qualities)[number];
 function quality(value?: string): Quality | undefined {
   return qualities.find((q) => q === value?.toLowerCase());
@@ -62,21 +65,26 @@ export function PostGameSummary({ game }: { game: Game }) {
   );
 }
 export function GameReview({
+  orientation,
   game,
   ply,
   exploring,
   onNavigate,
   onExplore,
+  onRetry,
   onPreview,
   onHoverMove,
   onToggleMove,
   preferences,
 }: {
+  orientation?: Color;
   game: Game | null;
   ply: number;
   exploring: boolean;
   onNavigate: (ply: number) => void;
   onExplore: () => void;
+  onRetry: (baseFen: string, rootPly?: number) => void;
+  highlightedMove?: string | null;
   onPreview: (candidate: Candidate, baseFen?: string, rootPly?: number) => void;
   onHoverMove: (uci: string | null) => void;
   onToggleMove: (uci: string) => void;
@@ -89,6 +97,7 @@ export function GameReview({
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState<unknown>(null);
+  const { analyzingGame, analysisProgress, analyzeGame, cancelAnalysis } = useFullGameAnalysis(game, preferences, setError);
   const review = useQuery({
     queryKey: ['game-review', game?.id, game?.revision],
     queryFn: ({ signal }) => api<Review>(`/games/${game!.id}/review`, undefined, undefined, signal),
@@ -119,6 +128,7 @@ export function GameReview({
       <h3>{t('review')}</h3>
       <p className="muted">{t('reviewHelp')}</p>
       {game && <QualityCounts game={game} />}
+      {!!game?.moves.length && <div className="review-decision-actions"><button className="outline-button" disabled={analyzingGame} onClick={() => void analyzeGame()}>{analyzingGame ? <Spinner /> : t('analyzeAllMoves')}</button>{analyzingGame && <button className="text-button" onClick={cancelAnalysis}>{t('cancelAnalysis')}</button>}<span role="status">{analysisProgress}</span></div>}
       {review.isFetching && <Spinner label={t('thinking')} />}
       <ErrorNotice error={review.error} />
       {review.isError && (
@@ -156,7 +166,8 @@ export function GameReview({
               <strong>
                 {current.san} · {t(current.rating)}
               </strong>
-              {current.rating === 'blunder' && current.feedback && game ? (
+              <ConfidenceBadge mode={current.feedback?.analysis_mode} confidence={current.feedback?.confidence} />
+              {['blunder', 'mistake', 'inaccuracy'].includes(current.rating) && current.feedback && game ? (
                 <BlunderReview
                   key={`${game.id}-${current.ply}`}
                   beforeFen={
@@ -177,6 +188,7 @@ export function GameReview({
                 <p>{current.feedback?.text || current.feedback?.explanation || current.feedback?.assessment}</p>
               )}
               {current.feedback?.takeaway && <p className="takeaway">{current.feedback.takeaway}</p>}
+              {current.feedback && game && <ConsequenceComparison feedback={current.feedback} base={current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen)} preferences={preferences} orientation={orientation || game.player_color} onPreview={onPreview} />}
               <div className="review-decision-actions">
                 <button
                   className="outline-button"
@@ -192,6 +204,7 @@ export function GameReview({
                 >
                   {t('afterMove')}
                 </button>
+                <button className="text-button" onClick={() => onRetry(current.before_fen || (current.ply === 1 ? game!.initial_fen : game!.moves[current.ply - 2].fen), current.ply - 1)}>{t('retryPosition')}</button>
                 <button className="text-button" disabled={exploring || ply !== current.ply - 1} onClick={onExplore}>
                   {t('tryAlternative')}
                 </button>
@@ -208,7 +221,7 @@ export function GameReview({
                 onPointerLeave={() => onHoverMove(null)}
                 onClick={() => {
                   setSelected(move.ply);
-                  onNavigate(move.ply);
+                  onNavigate(move.ply - 1);
                   onToggleMove(move.uci);
                 }}
               >

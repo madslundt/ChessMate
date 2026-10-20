@@ -37,6 +37,8 @@ services:
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
       LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SECURE_DEPLOYMENT: ${SECURE_DEPLOYMENT:-false}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
     command: ["alembic", "-c", "src/backend/alembic.ini", "upgrade", "head"]
     depends_on:

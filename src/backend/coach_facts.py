@@ -1,7 +1,7 @@
 """Bilingual, evidence-backed statements and question-aware deterministic teaching."""
 import chess
 
-from .chess_tools import move_facts, move_idea, observations, parse_move
+from .chess_tools import move_facts, move_idea, move_insights, observations, parse_move, relation_idea
 from .engine import score_number
 
 PIECES_DA = {"pawn": "bonde", "knight": "springer", "bishop": "løber", "rook": "tårn", "queen": "dronning", "king": "konge"}
@@ -102,6 +102,11 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
                        "This is a short-search estimate. Test the continuation on the board before drawing conclusions.",
         "castle": castle_statement(board, da, learner),
     }
+    if context.get("ambiguous_moves"):
+        ambiguity = context["ambiguous_moves"][0]
+        choices = ", ".join(f"{choice['san']} ({choice['from']})" for choice in ambiguity["choices"])
+        statements["clarify_move"] = (f"Hvilken brik mener du? Vælg udgangsfeltet på brættet: {choices}." if da else
+                                       f"Which piece do you mean? Select its starting square on the board: {choices}.")
     statements["plan"] = ({"opening": "Overvej centrum, udvikling af lette officerer og kongens sikkerhed.",
                            "middlegame": "Find modstanderens trusler, og vælg derefter en brik, du kan forbedre.",
                            "endgame": "Undersøg kongernes aktivitet og mulighederne for at fremme bønder."}[phase] if da else
@@ -122,7 +127,18 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
             statements["question"] = (f"Kan {root_name} slå den skakgivende brik, dække skakken eller flytte kongen lovligt?" if da else
                                       f"Can {root_name} capture the checking piece, block the check, or legally move the king?")
     if board.is_game_over(claim_draw=True):
-        statements["terminal"] = ("Stillingen er afsluttet: " if da else "The position has ended: ") + board.result(claim_draw=True)
+        if board.is_checkmate():
+            loser = side_name(board.turn, da)
+            statements["terminal"] = (f"{loser} er skakmat: kongen står i skak, og intet lovligt træk kan ophæve skakken. " if da else
+                f"{loser} is checkmated: the king is in check and no legal move can resolve it. ") + board.result()
+        elif board.is_stalemate():
+            stuck = side_name(board.turn, da)
+            statements["terminal"] = (f"Pat: {stuck} har ingen lovlige træk, men kongen står ikke i skak. Partiet er remis." if da else
+                f"Stalemate: {stuck} has no legal moves, but the king is not in check. The game is drawn.")
+        else:
+            reason = board.outcome(claim_draw=True).termination.name.lower().replace("_", " ")
+            statements["terminal"] = (f"Stillingen er remis efter reglen om {reason}." if da else f"The position is drawn under the {reason} rule.")
+        statements.pop("check", None)
     own = "white" if learner else "black"
     own_exposed = [p for p in evidence["exposed_pieces"] if p["color"] == own]
     for index, piece in enumerate(own_exposed[:6]):
@@ -163,6 +179,16 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
     controlled = [chess.square_name(sq) for sq in (chess.D4, chess.E4, chess.D5, chess.E5) if board.is_attacked_by(learner, sq)]
     if controlled:
         statements["center"] = ("Dine brikker kontrollerer geometrisk disse centrumfelter: " if da else "Your pieces geometrically control these central squares: ") + ", ".join(controlled) + "."
+    structure = evidence.get("pawn_structure", {}).get(own, {})
+    for feature, label_en, label_da in (("isolated", "isolated pawns", "isolerede bønder"), ("passed", "passed pawns", "fribønder")):
+        if structure.get(feature):
+            squares = ", ".join(structure[feature])
+            statements[feature] = (f"Du har {label_da} på {squares}. Strukturen alene beviser ikke, at de er stærke eller svage." if da else
+                f"You have {label_en} on {squares}. Structure alone does not prove that these pawns are strong or weak.")
+    if evidence.get("open_files"):
+        files = ", ".join(evidence["open_files"])
+        statements["open_files"] = (f"Disse linjer indeholder ingen bønder: {files}. Undersøg om dine tårne kan bruge dem sikkert." if da else
+            f"These files contain no pawns: {files}. Consider whether your rooks can use them safely.")
     if context.get("unavailable_piece_choices"):
         names = [PIECES_DA[name] if da else name for name in context["unavailable_piece_choices"]]
         if learner_turn:
@@ -174,9 +200,24 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
         move = parse_move(board, candidate["uci"])
         prefix = "" if learner_turn else (f"For {root_name}: ")
         statements[f"candidate_{index}"] = f"{prefix}{candidate['san']}: {candidate_idea(board, move, language, learner)}"
+        changes = move_facts(board, move)
+        if detail := relation_idea(changes, language): statements[f"impact_{index}"] = detail
+        if candidate.get("mate") is not None:
+            mating = candidate["mate"] > 0
+            root = side_name(board.turn, da)
+            statements[f"outcome_{index}"] = ((f"Søgningen finder tvungen skakmat for {root} efter {candidate['san']}." if mating else
+                f"Pas på: efter {candidate['san']} finder søgningen tvungen skakmat mod {root}. Et materielt forspring hjælper ikke mod skakmat.") if da else
+                (f"The search finds a forced checkmate for {root} after {candidate['san']}." if mating else
+                 f"Watch out: after {candidate['san']}, the search finds a forced checkmate against {root}. A material gain does not help against checkmate."))
+        fork = next((item for item in evidence.get("verified_short_forks", []) if item["uci"] == candidate["uci"]), None)
+        if fork:
+            targets = ", ".join(fork["targets"])
+            statements[f"motif_{index}"] = (f"{candidate['san']} giver skak og efter hvert lovligt umiddelbart svar kan samme brik lovligt slå en dronning på {targets}. Længere taktiske følger er ikke bevist." if da else
+                f"{candidate['san']} gives check, and after every immediate legal reply the same piece has a legal queen capture on {targets}. Longer tactical consequences remain unverified.")
         if show_line(context) and candidate.get("pv_uci"):
             replay, sequence = board.copy(), []
-            for value in candidate["pv_uci"][:5]:
+            line_length = {"beginner": 5, "intermediate": 8, "advanced": 10}.get(context["preferences"].get("complexity", "beginner"), 5)
+            for value in candidate["pv_uci"][:line_length]:
                 pv_move = parse_move(replay, value)
                 sequence.append(replay.san(pv_move))
                 replay.push(pv_move)
@@ -185,9 +226,18 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
             after = observations(replay)["material"]
             opponent = "black" if learner else "white"
             change = (after[own] - after[opponent]) - (before[own] - before[opponent])
-            if change:
+            if replay.is_checkmate():
+                loser = side_name(replay.turn, da)
+                statements[f"outcome_{index}"] = (f"Denne lovlige variant ender med skakmat mod {loser}." if da else
+                    f"This legal continuation ends in checkmate against {loser}.")
+            elif replay.is_stalemate():
+                statements[f"outcome_{index}"] = "Denne lovlige variant ender med pat og remis." if da else "This legal continuation ends in stalemate and a draw."
+            elif change and candidate.get("mate") is None:
                 statements[f"consequence_{index}"] = (f"Ved slutningen af netop denne variant ændres din materielle balance med {change:+} bondeenheder. Det er ikke en garanti for alle svar." if da else
                     f"At the end of this specific line, your material balance changes by {change:+} pawn units. This does not guarantee the same result against every reply.")
+            insights, _ = move_insights(board, candidate, language)
+            reply = next((item for item in insights if item["claim_type"] == "engine_estimate"), None)
+            if reply: statements[f"reply_{index}"] = reply["text"]
     if len(candidates) >= 2:
         first, second = candidates[:2]
         if abs(score_number(first) - score_number(second)) <= 35:
@@ -229,7 +279,12 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
         after.push(move)
         own_previous = "white" if original.turn else "black"
         exposed = [p for p in observations(after)["exposed_pieces"] if p["color"] == own_previous]
-        if exposed:
+        if feedback.get("consequence") and feedback.get("classification") in ("Mistake", "Blunder", "Inaccuracy"):
+            statements["previous_consequence"] = feedback["consequence"]
+            if original.turn != learner and not reveal and len(feedback.get("played", {}).get("pv", [])) > 1:
+                reply = feedback["played"]["pv"][1]
+                statements["previous_consequence"] = statements["previous_consequence"].replace(reply, "motorens svar" if da else "the engine's reply")
+        elif exposed:
             squares = ", ".join(p["square"] for p in exposed[:2])
             statements["previous_consequence"] = (f"Umiddelbart efter {decision['san']} var dine brikker på {squares} angrebet og udækkede. En gevinst skal stadig verificeres i en variant." if da else
                 f"Immediately after {decision['san']}, your pieces on {squares} were attacked and undefended. Whether a capture wins still needs variation analysis.")
@@ -245,6 +300,8 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
 def fallback_keys(context: dict, statements: dict, reveal: bool) -> list[str]:
     question = context["question"].lower()
     keys = [key for key in ("terminal", "turn", "check", "offline") if key in statements]
+    if "terminal" in statements: return ["terminal"]
+    if "clarify_move" in statements: return ["clarify_move"]
     if review_requested(context) and "review" in statements:
         keys.insert(0, "review")
     if review_requested(context) or any(word in question for word in ("last", "bad", "mistake", "why was", "blunder", "previous", "sidste", "fejl", "hvorfor var")):
@@ -252,12 +309,17 @@ def fallback_keys(context: dict, statements: dict, reveal: bool) -> list[str]:
     if any(word in question for word in ("castle", "rokad", "king safety", "kongens sikker")): keys.append("castle")
     if "unavailable_piece" in statements: keys.append("unavailable_piece")
     if reveal:
-        keys += [key for key in ("candidate_0", "candidate_1", "comparison", "line_0", "consequence_0") if key in statements]
+        advanced = context["preferences"].get("complexity") == "advanced"
+        sequence = ("outcome_0", "candidate_0", "motif_0", "impact_0", "outcome_1", "candidate_1", "comparison", "line_0", "consequence_0", "reply_0") if advanced else (
+            "outcome_0", "candidate_0", "motif_0", "line_0", "consequence_0", "outcome_1", "candidate_1", "comparison")
+        keys += [key for key in sequence if key in statements]
     if any(word in question for word in ("vulnerab", "undefended", "threat", "defend", "angreb", "udækket", "trus", "forsvar")):
         keys += [key for key in statements if key.startswith("exposed_")][:2]
         keys += [key for key in ("defended_attack", "no_exposed") if key in statements]
     if "center" in question or "centrum" in question:
         if "center" in statements: keys.append("center")
+    if any(term in question for term in ("pawn", "structure", "bonde", "struktur", "plan")):
+        keys += [key for key in ("passed", "isolated", "open_files") if key in statements]
     if "recognition" in statements: keys += ["recognition", "attackers_0"]
     if any(word in question for word in ("which piece", "which opponent", "hvilken brik", "angriber")):
         keys += [key for key in statements if key.startswith("attackers_")][:2]

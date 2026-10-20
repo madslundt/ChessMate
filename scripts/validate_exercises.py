@@ -26,25 +26,48 @@ def engine_path() -> str:
     return path
 
 
+def _sound_scores(top: chess.engine.Score, selected: chess.engine.Score) -> bool:
+    tm, sm, tc, sc = top.mate(), selected.mate(), top.score(), selected.score()
+    return ((tm is not None and sm is not None and (tm > 0) == (sm > 0))
+            or (tc is not None and sc is not None and tc - sc <= 100)
+            or (tc is not None and sc is not None and min(tc, sc) >= 1800)
+            or (tm is not None and tm > 0 and sc is not None and sc >= 1800)
+            or (sm is not None and sm > 0))
+
+
+def _mixed_losing_scores(top: chess.engine.Score, selected: chess.engine.Score) -> bool:
+    """Detect a mate-horizon disagreement, without treating it as equivalence."""
+    tm, sm, tc, sc = top.mate(), selected.mate(), top.score(), selected.score()
+    return ((tm is not None and tm < 0 and sc is not None and sc <= -900)
+            or (sm is not None and sm < 0 and tc is not None and tc <= -900))
+
+
+def compare_decision(board: chess.Board, move: chess.Move, engine: chess.engine.SimpleEngine,
+                     seconds: float) -> tuple[dict, dict, float]:
+    """Recheck a failing short search before rejecting an authored solution."""
+    budgets = [seconds, max(seconds, 1.5, min(5, seconds * 3))]
+    for attempt, budget in enumerate(budgets):
+        best = engine.analyse(board, chess.engine.Limit(time=budget))
+        chosen = engine.analyse(board, chess.engine.Limit(time=budget), root_moves=[move])
+        top, selected = best["score"].pov(board.turn), chosen["score"].pov(board.turn)
+        if min(best.get("depth", 0), chosen.get("depth", 0)) >= 8 and _sound_scores(top, selected):
+            return best, chosen, budget
+        if attempt == 1 and budget <= 5 and _mixed_losing_scores(top, selected):
+            # The restricted search can discover a distant forced mate that the
+            # preceding unrestricted search has not reached. Reuse its warmed
+            # hash for one final pair (at most ten extra seconds). Mixed scores
+            # still never pass: the normal depth and equivalence checks apply.
+            budgets.append(5.0)
+    raise ValueError(f"Unsound or shallow decision {board.san(move)} from {board.fen()}: best={top}, chosen={selected}")
+
+
 def verify(item: dict[str, Any], engine: chess.engine.SimpleEngine, seconds: float = .2) -> dict:
     board = validate_structure(item)
     move = parse_move(board, item["solution"][0])
-    limit = chess.engine.Limit(time=seconds)
-    best = engine.analyse(board, limit)
-    chosen = engine.analyse(board, limit, root_moves=[move])
-    if min(best.get("depth", 0), chosen.get("depth", 0)) < 8:
-        raise ValueError(f"{item['id']}: search too shallow; increase --seconds")
+    best, chosen, verified_budget = compare_decision(board, move, engine, seconds)
     best_score, chosen_score = best["score"].pov(board.turn), chosen["score"].pov(board.turn)
     bm, cm = best_score.mate(), chosen_score.mate()
     bcp, ccp = best_score.score(), chosen_score.score()
-    # A longer mate still achieves a winning objective. Large positive CP is an
-    # estimate, so only compare CP with CP rather than pretending mate is CP.
-    sound = ((bm is not None and cm is not None and (bm > 0) == (cm > 0))
-             or (bcp is not None and ccp is not None and bcp - ccp <= 100)
-             or (bm is not None and bm > 0 and ccp is not None and ccp >= 1800)
-             or (cm is not None and cm > 0))
-    if not sound:
-        raise ValueError(f"{item['id']}: intended move not sufficiently sound: best={best_score}, chosen={chosen_score}")
     if item["criterion"]["kind"] in ("fork", "skewer") and ((ccp is not None and ccp < 150) or (cm is not None and cm <= 0)):
         raise ValueError(f"{item['id']}: geometric tactic lacks winning engine evidence")
     if item["criterion"]["kind"] == "hold_corner" and (cm is not None or ccp is None or abs(ccp) > 20):
@@ -56,9 +79,26 @@ def verify(item: dict[str, Any], engine: chess.engine.SimpleEngine, seconds: flo
         sans.append(pv.san(step))
         ucis.append(step.uci())
         pv.push(step)
+    # Every authored continuation must hold up from its own position. Checking
+    # only the first move can silently accept a cooperative opponent or a later
+    # solver blunder in an otherwise useful multi-move lesson.
+    continuation_evidence = []
+    continuation = board.copy()
+    for index, value in enumerate(item["solution"]):
+        step = parse_move(continuation, value)
+        if index:
+            top, selected, step_budget = compare_decision(continuation, step, engine, seconds)
+            depth = min(top.get("depth", 0), selected.get("depth", 0))
+            top_score, selected_score = top["score"].pov(continuation.turn), selected["score"].pov(continuation.turn)
+            tc, sc, tm, sm = top_score.score(), selected_score.score(), top_score.mate(), selected_score.mate()
+            continuation_evidence.append({"ply": index + 1, "fen": continuation.fen(), "uci": step.uci(),
+                                          "depth": depth, "budget_seconds": step_budget, "cp": sc, "mate": sm,
+                                          "best_cp": tc, "best_mate": tm})
+        continuation.push(step)
     return {"engine": engine.id.get("name"), "depth": chosen.get("depth"), "cp": ccp,
             "mate": cm, "best_cp": bcp, "best_mate": bm, "pv_uci": ucis, "pv": sans,
-            "budget_seconds": seconds, "objective_verified": True,
+            "budget_seconds": verified_budget, "objective_verified": True,
+            "continuation_evidence": continuation_evidence,
             "provenance": item.get("evidence", {}).get("provenance", "Locally imported exercise; engine validated.")}
 
 

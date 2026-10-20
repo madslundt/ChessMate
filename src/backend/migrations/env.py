@@ -2,7 +2,7 @@ from alembic import context
 from sqlalchemy import create_engine
 from src.backend.config import settings
 from src.backend.database import Base
-from src.backend import models, training_models
+from src.backend import models, training_models, coaching_models, learning_models
 
 config = context.config
 target_metadata = Base.metadata

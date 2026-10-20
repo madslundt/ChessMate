@@ -122,6 +122,9 @@ def test_equally_strong_alternative_is_accepted_and_weaker_move_rejected(trainin
     monkeypatch.setattr(training.engine_service, "analyze", equivalent)
     response = client.post(f"/api/exercises/{exercise['id']}/attempt", json={"moves": ["d2d4"]})
     assert response.json()["correct"] and response.json()["complete"]
+    assert response.json()["solution"] == ["d2d4"]
+    assert "your alternative" in response.json()["explanation"]
+    assert response.json()["evidence"]["uci"] == "d2d4"
     def weaker(board, **kwargs):
         return {"candidates": [{"uci": "d2d4", "cp": -150 if kwargs.get("root_moves") else 30, "mate": None}]}
     monkeypatch.setattr(training.engine_service, "analyze", weaker)
@@ -333,3 +336,85 @@ def test_center_challenge_requires_pawn_objective_not_just_an_engine_equal_move(
     board = chess.Board(item["fen"])
     assert objective_met(board, board.parse_san("c4"), item["criterion"])
     assert not objective_met(board, board.parse_san("Nf3"), item["criterion"])
+
+
+def test_continuation_hint_uses_reached_position_and_never_reveals_an_early_move(training_client):
+    client, _ = training_client
+    item = next(x for x in read_library() if x["id"] == "forks-08")
+    prefix = item["solution"][:2]
+    first = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 1, "moves": prefix}).json()
+    assert "move" not in first
+    revealed = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 4, "moves": prefix}).json()
+    assert revealed["move"] == item["solution"][2]
+    invalid = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 1, "moves": ["a1a8"]})
+    assert invalid.status_code == 422
+
+
+def test_retry_success_is_recorded_separately_from_an_independent_solve(training_client):
+    client, sessions = training_client
+    item = read_library()[0]
+    board = chess.Board(item["fen"])
+    wrong = next(move for move in board.legal_moves if not objective_met(board, move, item["criterion"]))
+    client.post(f"/api/exercises/{item['id']}/attempt", json={"moves": [wrong.uci()]})
+    response = client.post(f"/api/exercises/{item['id']}/attempt", json={"moves": item["solution"]})
+    assert response.json()["independent"] is False
+    with sessions() as db:
+        solved = db.scalars(select(ExerciseAttempt).where(ExerciseAttempt.complete.is_(True))).one()
+        assert solved.evidence["retry_count"] == 1
+        assert db.scalar(select(LearningProgress)).streak == 0
+    topic = next(t for t in client.get("/api/progress").json()["topics"] if t["topic"] == item["category"])
+    assert topic["independent"] == 0 and topic["mastery"] < topic["accuracy"]
+
+
+def test_repeated_failures_are_explained_and_prioritized_in_practice(training_client):
+    client, _ = training_client
+    item = read_library()[0]
+    board = chess.Board(item["fen"])
+    wrong = next(move for move in board.legal_moves if not objective_met(board, move, item["criterion"]))
+    for _ in range(2):
+        client.post(f"/api/exercises/{item['id']}/attempt", json={"moves": [wrong.uci()]})
+    progress = client.get("/api/progress").json()
+    repeated = progress["repeated_mistakes"][0]
+    assert repeated["exercise_id"] == item["id"] and repeated["failures"] == 2
+    recommendation = progress["recommendations"][0]
+    assert recommendation["topic"] == item["category"]
+    assert "Repeated" in recommendation["reason"]
+    assert "suggested_difficulty" in next(t for t in progress["topics"] if t["topic"] == item["category"])
+
+
+def test_positional_game_mistakes_create_private_verified_calculation_practice(training_client, monkeypatch):
+    from src.backend.models import Game
+    client, sessions = training_client
+    best = {"uci": "e2e4", "san": "e4", "cp": 30, "mate": None,
+            "explanation": "The pawn reaches the center.", "pv_uci": ["e2e4", "e7e5", "g1f3"]}
+    monkeypatch.setattr(training.engine_service, "grade", lambda *args, **kwargs: {
+        "best": best, "loss_cp": 180, "classification": "Mistake"})
+    def continuation(board, **kwargs):
+        move = kwargs.get("root_moves", [board.parse_san("e5" if board.turn == chess.BLACK else "Nf3")])[0]
+        return {"candidates": [{"uci": move.uci(), "san": board.san(move), "cp": 30, "mate": None, "depth": 12}]}
+    monkeypatch.setattr(training.engine_service, "analyze", continuation)
+    with sessions() as db:
+        user = db.scalar(select(User))
+        game = Game(user_id=user.id, initial_fen=chess.STARTING_FEN, player_color="white", moves=[{
+            "uci": "a2a3", "san": "a3", "feedback": {"classification": "Mistake"}}])
+        db.add(game)
+        db.commit()
+        game_id = game.id
+    response = client.post(f"/api/games/{game_id}/retry", json={"ply": 0})
+    assert response.status_code == 200, response.text
+    item = response.json()
+    assert item["source_game_id"] == game_id and item["move_count"] == 3
+    assert "solution" not in item and "e2e4" not in str(item)
+    with sessions() as db:
+        derived = db.get(Exercise, item["id"])
+        assert derived.owner_id == user.id and derived.category == "opening"
+        assert derived.data["evidence"]["continuation_checks"][0]["objective_met"]
+        assert db.get(Game, game_id).moves[0]["uci"] == "a2a3"
+    first = client.post(f"/api/exercises/{item['id']}/attempt", json={"moves": ["e4"]}).json()
+    assert first["correct"] and not first["complete"] and first["reply"] == "e7e5"
+    retry = client.post(f"/api/games/{game_id}/retry", json={"ply": 0})
+    assert retry.status_code == 200 and retry.json()["id"] == item["id"]
+    assert client.post(f"/api/games/{game_id}/retry", json={"ply": 1}).status_code == 422
+    other = client.post("/api/profiles", json={"name": "other-retry-player"}).json()
+    client.headers["X-Profile-ID"] = other["id"]
+    assert client.post(f"/api/games/{game_id}/retry", json={"ply": 0}).status_code == 404

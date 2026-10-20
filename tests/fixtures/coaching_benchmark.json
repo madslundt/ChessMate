@@ -1,0 +1,485 @@
+{
+  "version": 1,
+  "positions": [
+    {
+      "id": "forks-01", "title": "Knight fork: h6",
+      "fen": "6r1/8/8/5N2/6k1/8/P7/K7 w - - 0 1", "move": "f5h6",
+      "line": ["f5h6"], "tags": ["forks", "fork"], "criterion": {"kind": "fork"},
+      "question": "What if f5h6? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Nh6+ on the board. Explain the two attacked targets and why the opponent must answer a check, when present.",
+        "intermediate": "The knight checks the king and attacks another valuable piece. The opponent must answer the check, giving you time to capture the other target. Distinguish the checking knight forks from the nonchecking pawn double attack; calculate the actual defense.",
+        "advanced": "Analyze Nh6+ from this exact position. Distinguish the checking knight forks from the nonchecking pawn double attack; calculate the actual defense. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "forks-01", "engine": "Stockfish 19", "depth": 28}
+    },
+    {
+      "id": "forks-02", "title": "Knight fork: h3",
+      "fen": "7k/p7/8/6K1/8/8/5Q2/6n1 b - - 0 1", "move": "g1h3",
+      "line": ["g1h3"], "tags": ["forks", "fork"], "criterion": {"kind": "fork"},
+      "question": "What if g1h3? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Nh3+ on the board. Explain the two attacked targets and why the opponent must answer a check, when present.",
+        "intermediate": "The knight checks the king and attacks another valuable piece. The opponent must answer the check, giving you time to capture the other target. Distinguish the checking knight forks from the nonchecking pawn double attack; calculate the actual defense.",
+        "advanced": "Analyze Nh3+ from this exact position. Distinguish the checking knight forks from the nonchecking pawn double attack; calculate the actual defense. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "forks-02", "engine": "Stockfish 19", "depth": 33}
+    },
+    {
+      "id": "forks-08", "title": "Knight fork: b5",
+      "fen": "7k/n1R4p/8/8/3K4/8/8/8 b - - 0 1", "move": "a7b5",
+      "line": ["a7b5", "d4e5", "b5c7"], "tags": ["forks", "fork", "calculation"], "criterion": {"kind": "fork"},
+      "question": "What if a7b5? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Nb5+ Ke5 Nxc7 on the board. Explain the two attacked targets and why the opponent must answer a check, when present.",
+        "intermediate": "The knight checks the king and attacks another valuable piece. The opponent must answer the check, giving you time to capture the other target. Distinguish the checking knight forks from the nonchecking pawn double attack; calculate the actual defense.",
+        "advanced": "Analyze Nb5+ Ke5 Nxc7 from this exact position. Distinguish the checking knight forks from the nonchecking pawn double attack; calculate the actual defense. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "forks-08", "engine": "Stockfish 19", "depth": 34}
+    },
+    {
+      "id": "forks-11", "title": "One pawn, two targets",
+      "fen": "7k/8/8/8/2r1r3/8/P2P4/K2Q4 w - - 0 1", "move": "d2d3",
+      "line": ["d2d3"], "tags": ["forks", "fork"], "criterion": {"kind": "fork"},
+      "question": "What if d2d3? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate d3 on the board. Explain the two attacked targets and why the opponent must answer a check, when present.",
+        "intermediate": "A pawn attacks both diagonally forward squares. Advancing it attacks two rooks at once, so a much less valuable piece creates two threats. Engine analysis confirms that the move is sound. Distinguish the checking knight forks from the nonchecking pawn double attack; calculate the actual defense.",
+        "advanced": "Analyze d3 from this exact position. Distinguish the checking knight forks from the nonchecking pawn double attack; calculate the actual defense. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "forks-11", "engine": "Stockfish 19", "depth": 19}
+    },
+    {
+      "id": "pins-01", "title": "Rook pin: a5",
+      "fen": "7K/8/8/1n1k4/8/R7/P7/8 w - - 0 1", "move": "a3a5",
+      "line": ["a3a5"], "tags": ["pins", "pin"], "criterion": {"kind": "pin"},
+      "question": "What if a3a5? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Ra5 on the board. Show the attacker, pinned piece, and king along one line.",
+        "intermediate": "Your sliding piece attacks a knight with the king behind it. The knight cannot move and expose its king. Use this restriction to improve your position. Explain that exposing the king makes off-line moves illegal; avoid promising material from geometry alone.",
+        "advanced": "Analyze Ra5 from this exact position. Explain that exposing the king makes off-line moves illegal; avoid promising material from geometry alone. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "pins-01", "engine": "Stockfish 19", "depth": 16}
+    },
+    {
+      "id": "pins-09", "title": "Break a pin with a pawn tempo",
+      "fen": "rnbqk1nr/pppp1ppp/8/b3p3/3P4/P1N5/1PP1PPPP/R1BQKBNR w KQkq - 1 4", "move": "b2b4",
+      "line": ["b2b4"], "tags": ["pins", "unpin"], "criterion": {"kind": "unpin"},
+      "question": "What if b2b4? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate b4 on the board. Show how the b-pawn blocks the bishop line and attacks the bishop.",
+        "intermediate": "The pawn advance blocks the bishop’s diagonal to your king and attacks the bishop. Your knight is no longer absolutely pinned. The move addresses the restriction with a concrete threat. Compare the pinned knight before and after b4, then calculate the bishop reply rather than claiming a forced win.",
+        "advanced": "Analyze b4 from this exact position. Compare the pinned knight before and after b4, then calculate the bishop reply rather than claiming a forced win. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "pins-09", "engine": "Stockfish 19", "depth": 16}
+    },
+    {
+      "id": "pins-10", "title": "A knight shields the queen",
+      "fen": "4qrk1/p4ppp/2n5/8/8/3Q4/P4PPP/1K1B1R2 w - - 0 1", "move": "d1a4",
+      "line": ["d1a4"], "tags": ["pins", "relative_pin"], "criterion": {"kind": "relative_pin"},
+      "question": "What if d1a4? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Ba4 on the board. Show the bishop line through the knight to the queen.",
+        "intermediate": "The bishop attacks the knight with the queen behind it. The knight is legally allowed to move, but moving off the line exposes the more valuable queen. This is a relative pin, rather than a king-based absolute pin. The knight is legally movable because the piece behind it is a queen, not a king; calculate the counterplay.",
+        "advanced": "Analyze Ba4 from this exact position. The knight is legally movable because the piece behind it is a queen, not a king; calculate the counterplay. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "pins-10", "engine": "Stockfish 19", "depth": 15}
+    },
+    {
+      "id": "pins-11", "title": "A defender that cannot recapture",
+      "fen": "4k3/pp6/2n5/1B2p3/3P4/8/PP4K1/8 w - - 0 1", "move": "d4e5",
+      "line": ["d4e5"], "tags": ["pins", "exploit_pin"], "criterion": {"kind": "exploit_pin"},
+      "question": "What if d4e5? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate dxe5 on the board. Show the pawn capture and why the defending knight cannot legally recapture.",
+        "intermediate": "The knight attacks the pawn’s square, but the bishop pins the knight to its king. After your pawn captures, a knight recapture would expose the king to check and is illegal. Separate the knight’s geometric attack from legal defense by replaying the king exposure.",
+        "advanced": "Analyze dxe5 from this exact position. Separate the knight’s geometric attack from legal defense by replaying the king exposure. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "pins-11", "engine": "Stockfish 19", "depth": 19}
+    },
+    {
+      "id": "skewers-01", "title": "Rook skewer: b7",
+      "fen": "K7/2k1q3/8/8/8/8/P7/1R6 w - - 0 1", "move": "b1b7",
+      "line": ["b1b7"], "tags": ["skewers", "skewer"], "criterion": {"kind": "skewer"},
+      "question": "What if b1b7? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Rb7+ on the board. Show the checked king in front of the valuable piece behind it.",
+        "intermediate": "Your sliding piece checks the king with the queen behind it. When the king steps off the line, you can capture the queen. Unlike a pin, the more valuable piece is in front. Calculate the king reply and subsequent capture; geometric alignment alone is insufficient evidence of gain.",
+        "advanced": "Analyze Rb7+ from this exact position. Calculate the king reply and subsequent capture; geometric alignment alone is insufficient evidence of gain. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "skewers-01", "engine": "Stockfish 19", "depth": 33}
+    },
+    {
+      "id": "skewers-02", "title": "Bishop skewer: g3",
+      "fen": "8/p1Q5/8/4K3/7b/8/8/k7 b - - 0 1", "move": "h4g3",
+      "line": ["h4g3"], "tags": ["skewers", "skewer"], "criterion": {"kind": "skewer"},
+      "question": "What if h4g3? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Bg3+ on the board. Show the checked king in front of the valuable piece behind it.",
+        "intermediate": "Your sliding piece checks the king with the queen behind it. When the king steps off the line, you can capture the queen. Unlike a pin, the more valuable piece is in front. Calculate the king reply and subsequent capture; geometric alignment alone is insufficient evidence of gain.",
+        "advanced": "Analyze Bg3+ from this exact position. Calculate the king reply and subsequent capture; geometric alignment alone is insufficient evidence of gain. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "skewers-02", "engine": "Stockfish 19", "depth": 29}
+    },
+    {
+      "id": "skewers-08", "title": "Rook skewer: h8",
+      "fen": "r7/p7/7K/8/7Q/8/8/k7 b - - 0 1", "move": "a8h8",
+      "line": ["a8h8", "h6g5", "h8h4"], "tags": ["skewers", "skewer", "calculation"], "criterion": {"kind": "skewer"},
+      "question": "What if a8h8? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Rh8+ Kg5 Rxh4 on the board. Show the checked king in front of the valuable piece behind it.",
+        "intermediate": "Your sliding piece checks the king with the queen behind it. When the king steps off the line, you can capture the queen. Unlike a pin, the more valuable piece is in front. Calculate the king reply and subsequent capture; geometric alignment alone is insufficient evidence of gain.",
+        "advanced": "Analyze Rh8+ Kg5 Rxh4 from this exact position. Calculate the king reply and subsequent capture; geometric alignment alone is insufficient evidence of gain. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "skewers-08", "engine": "Stockfish 19", "depth": 25}
+    },
+    {
+      "id": "opening-01", "title": "Claim the center",
+      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", "move": "e2e4",
+      "line": ["e2e4"], "tags": ["opening", "center"], "criterion": {"kind": "center"},
+      "question": "What if e2e4? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate e4 on the board. Explain which central square this pawn occupies and show its actual attacks.",
+        "intermediate": "Opening principles help you use every move: contest central squares, develop minor pieces, and safeguard the king. This move follows the stated principle and is supported by engine analysis. Compare other playable central moves; do not call a near-equivalent opening choice a mistake.",
+        "advanced": "Analyze e4 from this exact position. Compare other playable central moves; do not call a near-equivalent opening choice a mistake. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "opening-01", "engine": "Stockfish 19", "depth": 16}
+    },
+    {
+      "id": "opening-03", "title": "Develop with a threat",
+      "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2", "move": "g1f3",
+      "line": ["g1f3"], "tags": ["opening", "develop"], "criterion": {"kind": "develop"},
+      "question": "What if g1f3? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Nf3 on the board. Show the minor piece leaving its starting square and the actual central squares it attacks.",
+        "intermediate": "Opening principles help you use every move: contest central squares, develop minor pieces, and safeguard the king. This move follows the stated principle and is supported by engine analysis. Check concrete opponent checks and captures before endorsing development as a principle.",
+        "advanced": "Analyze Nf3 from this exact position. Check concrete opponent checks and captures before endorsing development as a principle. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "opening-03", "engine": "Stockfish 19", "depth": 16}
+    },
+    {
+      "id": "opening-04", "title": "Challenge the center",
+      "fen": "rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2", "move": "c2c4",
+      "line": ["c2c4"], "tags": ["opening", "engine"], "criterion": {"kind": "pawn_challenge"},
+      "question": "What if c2c4? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate c4 on the board. Show the c-pawn attacking the central d-pawn.",
+        "intermediate": "Opening principles help you use every move: contest central squares, develop minor pieces, and safeguard the king. This move follows the stated principle and is supported by engine analysis. Explain the tension and compare accepting or maintaining it without declaring a forced pawn win.",
+        "advanced": "Analyze c4 from this exact position. Explain the tension and compare accepting or maintaining it without declaring a forced pawn win. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "opening-04", "engine": "Stockfish 19", "depth": 16}
+    },
+    {
+      "id": "opening-06", "title": "A safer king",
+      "fen": "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4", "move": "e1g1",
+      "line": ["e1g1"], "tags": ["opening", "castle"], "criterion": {"kind": "castle"},
+      "question": "What if e1g1? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate O-O on the board. Animate both the king and rook moving and explain the legal king route.",
+        "intermediate": "Opening principles help you use every move: contest central squares, develop minor pieces, and safeguard the king. This move follows the stated principle and is supported by engine analysis. Distinguish castling legality from strategic safety and compare the opponent’s reply.",
+        "advanced": "Analyze O-O from this exact position. Distinguish castling legality from strategic safety and compare the opponent’s reply. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "opening-06", "engine": "Stockfish 19", "depth": 16}
+    },
+    {
+      "id": "opening-10", "title": "Bring a fresh piece into play",
+      "fen": "rnbqkb1r/ppp1pppp/5n2/3p4/3P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 2 3", "move": "g1f3",
+      "line": ["g1f3"], "tags": ["opening", "fresh_development"], "criterion": {"kind": "fresh_development", "previous_square": "c3"},
+      "question": "What if g1f3? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Nf3 on the board. Contrast bringing the g1 knight out with moving the developed c3 knight again.",
+        "intermediate": "Another minor piece enters play while the knight on c3 keeps its useful central role. This follows the principle of developing your whole army before making unnecessary repeat moves; the concrete engine comparison confirms it is sound here. Explain the development tempo in this position, subject to tactical checks rather than a universal rule.",
+        "advanced": "Analyze Nf3 from this exact position. Explain the development tempo in this position, subject to tactical checks rather than a universal rule. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "opening-10", "engine": "Stockfish 19", "depth": 15}
+    },
+    {
+      "id": "middlegame-01", "title": "Spot the loose rook",
+      "fen": "6k1/pp3ppp/8/8/3r4/2P5/PP3PPP/3R2K1 w - - 0 1", "move": "c3d4",
+      "line": ["c3d4"], "tags": ["middlegame", "capture"], "criterion": {"kind": "capture", "min_value": 5},
+      "question": "What if c3d4? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate cxd4 on the board. Show the captured piece and count the material before and after the legal continuation.",
+        "intermediate": "Before forming a long plan, scan every capture. The target is attacked and cannot be saved after your move. Taking a loose valuable piece converts awareness into a concrete material gain. Examine recaptures and forcing replies; a capture without an immediate recapture does not prove a safe gain.",
+        "advanced": "Analyze cxd4 from this exact position. Examine recaptures and forcing replies; a capture without an immediate recapture does not prove a safe gain. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "middlegame-01", "engine": "Stockfish 19", "depth": 15}
+    },
+    {
+      "id": "middlegame-03", "title": "Spot the loose queen",
+      "fen": "6k1/pp3ppp/8/5r2/3N4/8/PP3PPP/5RK1 w - - 0 1", "move": "d4f5",
+      "line": ["d4f5"], "tags": ["middlegame", "capture"], "criterion": {"kind": "capture", "min_value": 5},
+      "question": "What if d4f5? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Nxf5 on the board. Show the captured piece and count the material before and after the legal continuation.",
+        "intermediate": "Before forming a long plan, scan every capture. The target is attacked and cannot be saved after your move. Taking a loose valuable piece converts awareness into a concrete material gain. Examine recaptures and forcing replies; a capture without an immediate recapture does not prove a safe gain.",
+        "advanced": "Analyze Nxf5 from this exact position. Examine recaptures and forcing replies; a capture without an immediate recapture does not prove a safe gain. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "middlegame-03", "engine": "Stockfish 19", "depth": 16}
+    },
+    {
+      "id": "middlegame-05", "title": "Spot the loose rook",
+      "fen": "6k1/pp3ppp/8/2q5/8/5B2/PP3PPP/2Q3K1 w - - 0 1", "move": "c1c5",
+      "line": ["c1c5"], "tags": ["middlegame", "capture"], "criterion": {"kind": "capture", "min_value": 5},
+      "question": "What if c1c5? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Qxc5 on the board. Show the captured piece and count the material before and after the legal continuation.",
+        "intermediate": "Before forming a long plan, scan every capture. The target is attacked and cannot be saved after your move. Taking a loose valuable piece converts awareness into a concrete material gain. Examine recaptures and forcing replies; a capture without an immediate recapture does not prove a safe gain.",
+        "advanced": "Analyze Qxc5 from this exact position. Examine recaptures and forcing replies; a capture without an immediate recapture does not prove a safe gain. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "middlegame-05", "engine": "Stockfish 19", "depth": 18}
+    },
+    {
+      "id": "middlegame-09", "title": "An active rook joins the defense",
+      "fen": "6k1/p5pp/8/2b5/3N4/8/P5PP/R6K w - - 0 1", "move": "a1d1",
+      "line": ["a1d1"], "tags": ["middlegame", "defend"], "criterion": {"kind": "defend", "target": "d4"},
+      "question": "What if a1d1? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Rd1 on the board. Show the attacked knight and how the rook move adds a defender.",
+        "intermediate": "The knight on d4 is attacked by the bishop. The rook joins its defense along an open file. This improves the rook’s role while meeting a concrete threat; engine analysis checks that the defense is sound. Compare the legal capture/exchange before and after the defensive move; account for pins.",
+        "advanced": "Analyze Rd1 from this exact position. Compare the legal capture/exchange before and after the defensive move; account for pins. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "middlegame-09", "engine": "Stockfish 19", "depth": 17}
+    },
+    {
+      "id": "middlegame-10", "title": "Exchange queens when ahead",
+      "fen": "3r2k1/pp4pp/8/3q4/8/N7/PP4PP/3Q1RK1 w - - 0 1", "move": "d1d5",
+      "line": ["d1d5", "d8d5"], "tags": ["middlegame", "simplify"], "criterion": {"kind": "simplify"},
+      "question": "What if d1d5? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Qxd5+ Rxd5 on the board. Show the queen exchange and the opponent’s rook recapture.",
+        "intermediate": "You have an extra minor piece. Capturing the queen allows the rook to recapture, exchanging queens while preserving the extra piece. Reducing attacking material makes the remaining material advantage easier to use. Explain what remains after exchanging queens and compare the material and activity without assuming all exchanges help.",
+        "advanced": "Analyze Qxd5+ Rxd5 from this exact position. Explain what remains after exchanging queens and compare the material and activity without assuming all exchanges help. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "middlegame-10", "engine": "Stockfish 19", "depth": 15}
+    },
+    {
+      "id": "middlegame-11", "title": "Repair doubled pawns through a capture",
+      "fen": "r4rk1/ppp1bppp/5n2/8/3p4/2P2N2/PPP1BPPP/R4RK1 w - - 0 1", "move": "c3d4",
+      "line": ["c3d4"], "tags": ["middlegame", "repair_pawns"], "criterion": {"kind": "repair_pawns"},
+      "question": "What if c3d4? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate cxd4 on the board. Show the doubled pawns and the capturing pawn joining its neighboring pawn.",
+        "intermediate": "The c-pawn captures toward the center. The two pawns no longer share the c-file, so the doubled-pawn count decreases. This move also wins the available pawn; the engine checks the concrete tactics. Compare the changed pawn files and central control with the opponent’s response, rather than promising a permanent structural advantage.",
+        "advanced": "Analyze cxd4 from this exact position. Compare the changed pawn files and central control with the opponent’s response, rather than promising a permanent structural advantage. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "middlegame-11", "engine": "Stockfish 19", "depth": 16}
+    },
+    {
+      "id": "middlegame-12", "title": "From the rim to a supported square",
+      "fen": "2b2rk1/pp3ppp/8/8/8/NP1P4/5PPP/R5K1 w - - 0 1", "move": "a3c4",
+      "line": ["a3c4"], "tags": ["middlegame", "outpost"], "criterion": {"kind": "outpost"},
+      "question": "What if a3c4? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Nc4 on the board. Show the knight leaving the rim for c4 and the b3 pawn protecting it.",
+        "intermediate": "The knight leaves the edge and reaches a pawn-supported advanced square. No enemy pawn currently attacks its new square. That is a concrete improvement in placement; continue checking whether enemy pieces can challenge it. State that no enemy pawn attacks c4 now; this is a current placement fact, not proof that the knight can never be challenged.",
+        "advanced": "Analyze Nc4 from this exact position. State that no enemy pawn attacks c4 now; this is a current placement fact, not proof that the knight can never be challenged. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "middlegame-12", "engine": "Stockfish 19", "depth": 17}
+    },
+    {
+      "id": "endgame-01", "title": "Queen and king: finish the net",
+      "fen": "7k/5K2/6Q1/8/8/8/8/8 w - - 0 1", "move": "g6g7",
+      "line": ["g6g7"], "tags": ["endgame", "mate"], "criterion": {"kind": "mate"},
+      "question": "What if g6g7? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Qg7# on the board. Show that the move checks the king and leaves no legal escape.",
+        "intermediate": "Use your king to take away escape squares, then check with the queen or rook. Verify that every legal escape is covered: checkmate ends the game. Verify capture, interposition, and king-escape resources; distinguish checkmate from stalemate.",
+        "advanced": "Analyze Qg7# from this exact position. Verify capture, interposition, and king-escape resources; distinguish checkmate from stalemate. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "endgame-01", "engine": "Stockfish 19", "depth": 245}
+    },
+    {
+      "id": "endgame-05", "title": "Convert a passed pawn",
+      "fen": "8/P7/8/8/8/7k/8/7K w - - 0 1", "move": "a7a8q",
+      "line": ["a7a8q"], "tags": ["endgame", "promote"], "criterion": {"kind": "promote"},
+      "question": "What if a7a8q? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate a8=Q on the board. Animate the pawn becoming a queen and check the opponent’s legal replies.",
+        "intermediate": "A passed pawn can become a queen. Check for stalemate before promoting; here the opponent still has legal play and your material advantage is decisive. Compare promotion choices and inspect stalemate rather than assuming every promotion wins.",
+        "advanced": "Analyze a8=Q from this exact position. Compare promotion choices and inspect stalemate rather than assuming every promotion wins. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "endgame-05", "engine": "Stockfish 19", "depth": 19}
+    },
+    {
+      "id": "endgame-06", "title": "Activate the king",
+      "fen": "8/8/8/5k2/8/4K3/4P3/8 w - - 0 1", "move": "e3d4",
+      "line": ["e3d4"], "tags": ["endgame", "king_activity"], "criterion": {"kind": "king_activity"},
+      "question": "What if e3d4? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Kd4 on the board. Show the king moving toward the center and its pawn.",
+        "intermediate": "In a pawn ending the king is an active fighting piece. Bring it toward the center and the important pawn squares, while preserving the position’s result. Compare the opposing king’s response and pawn support; do not infer a theoretical win from one active move.",
+        "advanced": "Analyze Kd4 from this exact position. Compare the opposing king’s response and pawn support; do not infer a theoretical win from one active move. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "endgame-06", "engine": "Stockfish 19", "depth": 33}
+    },
+    {
+      "id": "endgame-09", "title": "Take the direct opposition",
+      "fen": "8/8/3k4/8/4K3/4P3/8/8 w - - 0 1", "move": "e4d4",
+      "line": ["e4d4"], "tags": ["endgame", "opposition"], "criterion": {"kind": "opposition"},
+      "question": "What if e4d4? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Kd4 on the board. Show the kings facing each other and count the separating square.",
+        "intermediate": "Your king takes direct opposition: the kings face each other with one empty square between them, and the opponent must move. This can force the defender to give ground and help your pawn advance; the engine verifies that this king move preserves the best result. Explain the side-to-move dependence of opposition and calculate the pawn ending before claiming a win.",
+        "advanced": "Analyze Kd4 from this exact position. Explain the side-to-move dependence of opposition and calculate the pawn ending before claiming a win. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "endgame-09", "engine": "Stockfish 19", "depth": 24}
+    },
+    {
+      "id": "endgame-10", "title": "The rook-pawn drawing corner",
+      "fen": "1k6/8/PK6/8/8/8/8/8 b - - 0 1", "move": "b8a8",
+      "line": ["b8a8"], "tags": ["endgame", "hold_corner"], "criterion": {"kind": "hold_corner", "corner": "a8"},
+      "question": "What if b8a8? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Ka8 on the board. Show the defending king reaching the rook pawn’s promotion corner.",
+        "intermediate": "The king reaches a8 in front of the rook-pawn. The attacking king cannot force it out of that corner, and the engine evaluates the position as drawn. The corner is a defensive resource, not a pawn race you can win. Explain the drawing corner defense and demonstrate why pushing the rook pawn cannot force the king out.",
+        "advanced": "Analyze Ka8 from this exact position. Explain the drawing corner defense and demonstrate why pushing the rook pawn cannot force the king out. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "endgame-10", "engine": "Stockfish 19", "depth": 51}
+    },
+    {
+      "id": "endgame-11", "title": "A rook reaches the seventh rank",
+      "fen": "5rk1/p5pp/8/8/8/6P1/6KP/R7 w - - 0 1", "move": "a1a7",
+      "line": ["a1a7"], "tags": ["endgame", "rook_seventh"], "criterion": {"kind": "rook_seventh"},
+      "question": "What if a1a7? Explain why, show the continuation, and give me one learning takeaway.",
+      "expected": {
+        "beginner": "Demonstrate Rxa7 on the board. Show the rook capturing on the seventh rank and the pawn targets along that rank.",
+        "intermediate": "The rook reaches the seventh rank and captures the a-pawn. From that rank it also attacks the pawn line along the rank. This is a concrete activity gain, but always check the opponent’s rook checks and counterplay. Balance active rook placement against opposing rook checks; do not claim that entering the seventh rank wins by itself.",
+        "advanced": "Analyze Rxa7 from this exact position. Balance active rook placement against opposing rook checks; do not claim that entering the seventh rank wins by itself. Compare a serious legal candidate and state search uncertainty; separate line-specific observations from forced conclusions."
+      },
+      "forbidden_claims": ["A geometric attack alone proves a winning capture.", "The intended move is uniquely best without a supported comparison."], "provenance": {"kind": "original_curriculum_snapshot", "source": "endgame-11", "engine": "Stockfish 19", "depth": 17}
+    },
+    {
+      "id": "poisoned-queen", "title": "Capturing the queen loses to mate",
+      "fen": "rn1qkbnr/ppp2p1p/3p2p1/4N3/2B1P1b1/2N5/PPPP1PPP/R1BQK2R b KQkq - 0 5", "move": "g4d1",
+      "line": ["g4d1", "c4f7", "e8e7", "c3d5"], "tags": ["sacrifice", "poisoned_capture", "forced_mate"],
+      "question": "What if g4d1? Explain why and show the continuation.",
+      "expected": {
+        "beginner": "The bishop can take the queen, but White then delivers checkmate. Show the bishop check and knight mate instead of praising the capture.",
+        "intermediate": "After Bxd1 Bxf7+ Ke7 Nd5#, Black is checkmated. The material count after taking the queen misses the forcing attack.",
+        "advanced": "Compare Bxd1 with a legal defense such as dxe5. Verify each check evasion and the final mate. Material won immediately can be irrelevant to a forcing mating attack."
+      },
+      "forbidden_claims": ["Bxd1 safely wins the queen.", "Taking a queen guarantees a winning position."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "fools-mate", "title": "A weakened king permits mate",
+      "fen": "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2", "move": "d8h4",
+      "line": ["d8h4"], "tags": ["forced_mate", "king_safety"],
+      "question": "What if d8h4? Explain why and show the continuation.",
+      "expected": {
+        "beginner": "Show the queen checking on h4 and the diagonal to the king. No legal defense exists.",
+        "intermediate": "Qh4 is mate because escape squares, captures and blocks fail; connect the weakened diagonal to the pawn moves.",
+        "advanced": "Verify the terminal mate and contrast a safe preceding pawn move; never treat mate as an ordinary centipawn swing."
+      },
+      "forbidden_claims": ["Inventing a legal continuation or claiming a forced result without evidence."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "scholars-mate", "title": "Two attackers on f7",
+      "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4", "move": "h5f7",
+      "line": ["h5f7"], "tags": ["forced_mate", "double_attack"],
+      "question": "What if h5f7? Explain why and show the continuation.",
+      "expected": {
+        "beginner": "Show the queen capture on f7 and the bishop protecting the queen. Demonstrate the reason on the board.",
+        "intermediate": "Qxf7 is mate because the bishop on c4 protects f7 and the king has no escape.",
+        "advanced": "Explain the coordinated queen-bishop attack, verify all defenses, and distinguish the position-specific tactic from endorsing early queen sorties."
+      },
+      "forbidden_claims": ["Inventing a legal continuation or claiming a forced result without evidence."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "en-passant", "title": "En passant removes a different square",
+      "fen": "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2", "move": "e5d6",
+      "line": ["e5d6"], "tags": ["en_passant", "capture"],
+      "question": "What if e5d6? Explain why and show the continuation.",
+      "expected": {
+        "beginner": "Show the white pawn going to d6 and remove the black pawn on d5. Demonstrate the reason on the board.",
+        "intermediate": "En passant is legal because d6 is the current en-passant target; the captured pawn is on d5, not d6.",
+        "advanced": "Replay the exact FEN including en-passant rights, verify king safety after both pawns change squares, and avoid applying this right on a later turn."
+      },
+      "forbidden_claims": ["Inventing a legal continuation or claiming a forced result without evidence."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "black-castle", "title": "Black castling with flipped orientation",
+      "fen": "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1", "move": "e8c8",
+      "line": ["e8c8"], "tags": ["castling", "black_perspective"],
+      "question": "What if e8c8? Explain why and show the continuation.",
+      "expected": {
+        "beginner": "Move Black’s king to c8 and rook to d8 together. Demonstrate the reason on the board.",
+        "intermediate": "Queenside castling requires clear squares and a safe king route e8-d8-c8; b8 need not be unattacked.",
+        "advanced": "Validate retained rights, absence of check, and transit-square safety from Black’s perspective; do not infer strategic superiority from legality."
+      },
+      "forbidden_claims": ["Inventing a legal continuation or claiming a forced result without evidence."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "underpromotion", "title": "Queen promotion stalemates",
+      "fen": "8/k1P5/2K5/8/8/8/8/8 w - - 0 1", "move": "c7c8r",
+      "line": ["c7c8r"], "tags": ["underpromotion", "stalemate"],
+      "question": "What if c7c8r? Explain why and show the continuation.",
+      "expected": {
+        "beginner": "Show that a new queen leaves Black no legal move without checking; choosing a rook avoids that immediate draw.",
+        "intermediate": "Compare c8=Q stalemate with c8=R, after which the black king can move to a6.",
+        "advanced": "Verify all king destinations after both promotions and distinguish avoiding immediate stalemate from an engine/tablebase proof of conversion."
+      },
+      "forbidden_claims": ["Inventing a legal continuation or claiming a forced result without evidence."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "stalemate", "title": "No check and no legal move",
+      "fen": "7k/5K2/6Q1/8/8/8/8/8 b - - 0 1", "move": null,
+      "line": [], "tags": ["stalemate", "terminal"],
+      "question": "Explain the result and why no moves are possible.",
+      "expected": {
+        "beginner": "Black has no legal moves but is not in check, so the result is a draw. Demonstrate the reason on the board.",
+        "intermediate": "Show all the black king’s forbidden destinations and distinguish stalemate from checkmate.",
+        "advanced": "Return the terminal draw with no invented PV or candidate moves; material advantage cannot override stalemate."
+      },
+      "forbidden_claims": ["Inventing a legal continuation or claiming a forced result without evidence."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "checkmate", "title": "Check and no legal response",
+      "fen": "7k/5KQ1/8/8/8/8/8/8 b - - 0 1", "move": null,
+      "line": [], "tags": ["forced_mate", "terminal"],
+      "question": "Explain the result and why no moves are possible.",
+      "expected": {
+        "beginner": "The black king is checked and cannot escape: White wins by checkmate. Demonstrate the reason on the board.",
+        "intermediate": "Explain why capturing the queen and moving the king fail; no legal response exists.",
+        "advanced": "Return checkmate and the correct winner with an empty candidate list; never generate a post-mate continuation."
+      },
+      "forbidden_claims": ["Inventing a legal continuation or claiming a forced result without evidence."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "only-move", "title": "One legal king evasion",
+      "fen": "8/8/8/8/8/q1k5/8/K7 w - - 0 1", "move": "a1b1",
+      "line": ["a1b1"], "tags": ["forced_move", "defense"],
+      "question": "What if a1b1? Explain why and show the continuation.",
+      "expected": {
+        "beginner": "White is in check and must move the king to b1. Demonstrate the reason on the board.",
+        "intermediate": "Kb1 is the only legal move: the queen controls the a-file and the other escape is covered.",
+        "advanced": "Classify Kb1 as forced rather than praising a choice over unavailable alternatives; assess the resulting position separately."
+      },
+      "forbidden_claims": ["Inventing a legal continuation or claiming a forced result without evidence."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "ambiguous-knights", "title": "Two knights can reach e4",
+      "fen": "7k/8/8/8/8/8/3N1N2/K7 w - - 0 1", "move": null,
+      "line": [], "tags": ["ambiguity", "natural_language"],
+      "question": "What if I move my knight to e4?",
+      "expected": {
+        "beginner": "Ask the player to choose the knight on d2 or f2. Demonstrate the reason on the board.",
+        "intermediate": "Both Nde4 and Nfe4 are legal; highlight both starting pieces and request clarification.",
+        "advanced": "Resolve destination and piece type against legal moves; do not silently choose one source or claim the move is illegal."
+      },
+      "forbidden_claims": ["Inventing a legal continuation or claiming a forced result without evidence."], "provenance": {"kind": "original_regression_position", "validation": "python-chess legal replay; see explicit expected outcome assertions"}
+    },
+    {
+      "id": "poisoned-pawn", "title": "No recapture, but back-rank mate",
+      "fen": "6k1/5ppp/8/8/8/q7/1P3PPP/4R1K1 b - - 0 1", "move": "a3b2",
+      "line": ["a3b2", "e1e8"], "tags": ["poisoned_capture", "back_rank", "forced_mate"],
+      "question": "What if a3b2? Does taking the pawn safely win material? Show the continuation.",
+      "expected": {
+        "beginner": "The queen can take the pawn, but White can then checkmate along the back rank. Show Re8 and the black king’s blocked escapes.",
+        "intermediate": "Qxb2 has no immediate legal recapture, yet Re8# ends the game. Black’s f7, g7, and h7 pawns block the king while the rook controls the eighth rank.",
+        "advanced": "Verify Qxb2 Re8# including possible queen captures and interpositions; compare a defense that prevents the back-rank attack. No immediate recapture is not evidence of a tactically sound material gain."
+      },
+      "forbidden_claims": ["No immediate recapture means Qxb2 safely gains material.", "Black wins after Qxb2."], "provenance": {"kind": "original_regression_position", "validation": "python-chess exact mate and no legal recapture assertions"}
+    }
+  ]
+}

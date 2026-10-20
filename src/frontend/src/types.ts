@@ -1,28 +1,39 @@
-export type Color = 'white' | 'black';
-export type Page = 'play' | 'learn' | 'analyze' | 'history' | 'progress' | 'settings';
+export type Color = "white" | "black";
+export type Page =
+  "play" | "learn" | "analyze" | "history" | "progress" | "settings";
 export interface User {
   id: string;
   name: string;
   preferences?: Partial<Preferences>;
 }
 export interface Preferences {
-  language: 'en' | 'da';
-  coach_language: 'en' | 'da';
-  theme: 'light' | 'dark' | 'system';
+  skill_defaults?: boolean;
+  deep_analysis_time_ms?: number;
+  highlight_threats?: boolean;
+  highlight_pieces?: boolean;
+  animate_variations?: boolean;
+  return_after_playback?: boolean;
+  language: "en" | "da";
+  coach_language: "en" | "da";
+  theme: "light" | "dark" | "system";
   player_color: Color;
   difficulty: number;
-  orientation: Color | 'player';
-  board_theme: 'sage' | 'wood' | 'blue';
-  piece_style: 'classic' | 'modern';
+  orientation: Color | "player";
+  board_theme: "sage" | "wood" | "blue";
+  piece_style: "classic" | "modern";
   show_legal_moves: boolean;
   show_evaluation_bar: boolean;
-  coaching_mode: 'independent' | 'guided' | 'learning' | 'socratic';
-  feedback: 'none' | 'short' | 'detailed' | 'mistakes';
-  feedback_frequency: 'all' | 'mistakes';
+  coaching_mode: "independent" | "guided" | "learning" | "socratic";
+  feedback: "none" | "short" | "detailed" | "mistakes";
+  feedback_frequency: "all" | "mistakes";
   show_alternatives: boolean;
   hide_best_moves: boolean;
   guided_questions: boolean;
-  complexity: 'beginner' | 'intermediate';
+  complexity: "beginner" | "intermediate" | "advanced";
+  play_mode?: "automatic" | "coach_first" | "independent";
+  explanation_mode?: "text" | "visual" | "both";
+  variation_speed_ms?: number;
+  visual_arrows?: "automatic" | "on_request";
   max_explanation_length: number;
   progressive_hints: boolean;
   analysis_time_ms: number;
@@ -32,7 +43,29 @@ export interface Preferences {
   show_pv: boolean;
   auto_computer: boolean;
 }
-export interface Feedback {
+export interface VisualInsight {
+  id: string;
+  text: string;
+  fen: string;
+  evidence_ids?: string[];
+  claim_type?: string;
+  squares?: string[];
+  arrows?: { from: string; to: string; color?: string }[];
+}
+export interface CoachingVariation {
+  id: string;
+  label: string;
+  base_fen: string;
+  moves: string[];
+  resulting_fen?: string;
+}
+export interface VisualCoaching {
+  insights?: VisualInsight[];
+  variations?: CoachingVariation[];
+}
+export interface Feedback extends VisualCoaching {
+  analysis_mode?: string;
+  confidence?: string;
   classification?: string;
   assessment?: string;
   explanation?: string;
@@ -61,7 +94,7 @@ export interface Game {
   initial_fen: string;
   moves: MoveRecord[];
   revision: number;
-  mode: 'computer' | 'training' | 'analysis';
+  mode: "computer" | "training" | "analysis";
   player_color: Color;
   difficulty: number;
   status: string;
@@ -71,7 +104,14 @@ export interface Game {
   legal_moves?: string[];
   feedback?: Feedback;
 }
-export interface Candidate {
+export interface Candidate extends VisualCoaching {
+  strategy?: {
+    plan?: string;
+    advantages?: string[];
+    drawbacks?: string[];
+    qualification?: string;
+    effects?: VisualInsight[];
+  };
   uci: string;
   san: string;
   cp: number | null;
@@ -88,6 +128,9 @@ export interface Candidate {
   similar_to_best?: boolean;
 }
 export interface Analysis {
+  strategic_insights?: VisualInsight[];
+  mode?: string;
+  confidence?: string;
   fen: string;
   candidates: Candidate[];
   observations?: Record<string, unknown>;
@@ -95,8 +138,21 @@ export interface Analysis {
   engine_available?: boolean;
   [key: string]: unknown;
 }
-export interface ChatMessage {
-  role: 'user' | 'assistant';
+export interface CoachingState {
+  question?: string;
+  acknowledgement?: string;
+  stage: string;
+  discovered_ids: string[];
+  mode: string;
+  turns?: number;
+}
+export interface ChatMessage extends VisualCoaching {
+  state?: CoachingState;
+  ambiguous_moves?: {
+    reference: string;
+    choices: { uci: string; san: string; from: string; to: string }[];
+  }[];
+  role: "user" | "assistant";
   content: string;
   fen?: string;
   source?: string;
@@ -113,6 +169,7 @@ export interface Exercise {
   explanation?: string;
   description?: string;
   source_game_id?: string;
+  move_count?: number;
 }
 export interface Attempt {
   correct: boolean;
@@ -131,14 +188,73 @@ export interface Topic {
   accuracy: number;
   due?: number;
   strength?: string;
+  recent_accuracy?: number;
+  independent_accuracy?: number;
+  mastery?: number;
+  suggested_difficulty?: number;
+  repeated_mistakes?: number;
+  trend?: "improving" | "declining" | "steady";
 }
 export interface Progress {
+  calculation?: {
+    attempts: number;
+    assessed_plies: number;
+    accurate_plies: number;
+    accuracy: number | null;
+    response_accuracy: number | null;
+    final_assessment_accuracy: number | null;
+    independent_solves: number;
+    hints_used: number;
+  };
+  observed_skills?: {
+    skill: string;
+    label: string;
+    observations: number;
+    correct: number;
+    mistakes: number;
+    independent: number;
+    accuracy: number;
+    priority: "practice" | "observe" | "strength";
+    sources: Record<string, number>;
+  }[];
+  transfer?: {
+    decisions: number;
+    sound_decisions: number;
+    qualification: string;
+    samples: {
+      game_id: string;
+      revision: number;
+      topic: string;
+      move: string;
+      san: string;
+      fen: string;
+      match: string;
+      practice_source: string;
+      practice_id: string;
+      trained_at: string;
+      played_at: string;
+      classification: string;
+      sound: boolean;
+      evidence: Record<string, unknown>;
+    }[];
+  };
+
   games_played: number;
+  due_reviews?: number;
+  repeated_mistakes?: {
+    exercise_id: string;
+    topic: string;
+    title: string;
+    failures: number;
+  }[];
   attempts: number;
   accuracy: number;
   hints_used: number;
   topics: Topic[];
-  recommendations: (string | { topic?: string; reason?: string; exercise_id?: string; title?: string })[];
+  recommendations: (
+    | string
+    | { topic?: string; reason?: string; exercise_id?: string; title?: string }
+  )[];
   [key: string]: unknown;
 }
 export interface Review {
@@ -149,23 +265,23 @@ export interface Review {
   [key: string]: unknown;
 }
 export const defaults: Preferences = {
-  language: 'en',
-  coach_language: 'en',
-  theme: 'light',
-  player_color: 'white',
+  language: "en",
+  coach_language: "en",
+  theme: "light",
+  player_color: "white",
   difficulty: 2,
-  orientation: 'player',
-  board_theme: 'sage',
-  piece_style: 'classic',
+  orientation: "player",
+  board_theme: "sage",
+  piece_style: "classic",
   show_legal_moves: true,
   show_evaluation_bar: false,
-  coaching_mode: 'guided',
-  feedback: 'short',
-  feedback_frequency: 'all',
+  coaching_mode: "guided",
+  feedback: "short",
+  feedback_frequency: "all",
   show_alternatives: false,
   hide_best_moves: true,
   guided_questions: true,
-  complexity: 'beginner',
+  complexity: "beginner",
   max_explanation_length: 180,
   progressive_hints: true,
   analysis_time_ms: 350,

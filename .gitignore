@@ -15,6 +15,7 @@ playwright-report/
 test-results/
 tests/report/
 tests/results/
+tests/benchmark-results/
 tests/.postgres-check-*/
 tests/.dns-check-*/
 .DS_Store

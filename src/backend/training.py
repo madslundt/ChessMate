@@ -1,7 +1,6 @@
 """Authenticated training APIs, exercise grading, and adaptive practice."""
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
 from uuid import uuid4
@@ -13,12 +12,16 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from .auth import current_user
+from .chess_tools import move_facts, move_idea
 from .database import get_db
 from .engine import EngineUnavailable, engine_service, score_number
 from .exercises import CATEGORIES, objective_met, parse_move, public_exercise, read_library, validate_structure, localized_exercise, retry_feedback
 from .models import Game, HintUsage, User, now
 from .views import ExerciseView, AttemptView, ProgressView
 from .training_models import Exercise, ExerciseAttempt, HintEvent, LearningProgress, OpeningLine, TrainingSession
+from .training_progress import progress_data
+from .training_generation import verified_continuation
+from .training_attempts import alternative_line, expected_line
 
 router = APIRouter(tags=["training"])
 DB = Annotated[Session, Depends(get_db)]
@@ -28,10 +31,13 @@ Player = Annotated[User, Depends(current_user)]
 class AttemptRequest(BaseModel):
     moves: list[str] = Field(min_length=1, max_length=16)
     hint_level: int = Field(default=0, ge=0, le=4)
+    branch_id: str | None = Field(default=None, max_length=36)
 
 
 class HintRequest(BaseModel):
     level: int = Field(default=1, ge=1, le=4)
+    moves: list[str] = Field(default_factory=list, max_length=16)
+    branch_id: str | None = Field(default=None, max_length=36)
 
 
 class SessionRequest(BaseModel):
@@ -100,6 +106,18 @@ def _effective_hints(db: Session, user_id: str, exercise_id: str, requested: int
     return max([requested, *db.scalars(query).all()])
 
 
+def _retries_since_solve(db: Session, user_id: str, exercise_id: str) -> int:
+    previous = db.scalars(select(ExerciseAttempt).where(
+        ExerciseAttempt.user_id == user_id, ExerciseAttempt.exercise_id == exercise_id)
+        .order_by(ExerciseAttempt.created_at.desc())).all()
+    failures = 0
+    for attempt in previous:
+        if attempt.correct and attempt.complete:
+            break
+        failures += int(not attempt.correct)
+    return failures
+
+
 def update_schedule(db: Session, user_id: str, exercise: Exercise, correct: bool, hint_level: int) -> None:
     progress = db.scalar(select(LearningProgress).where(
         LearningProgress.user_id == user_id, LearningProgress.exercise_id == exercise.id).with_for_update())
@@ -123,11 +141,12 @@ def attempt_exercise(exercise_id: str, body: AttemptRequest, db: DB, user: Playe
     exercise = accessible(db, user, exercise_id)
     data, board = exercise.data, chess.Board(exercise.data["fen"])
     language = user.preferences.get("coach_language", "en")
-    expected = data["solution"]
+    expected = expected_line(db, user.id, exercise, body.branch_id)
     submitted, correct, evidence = [], True, {}
     if len(body.moves) > len(expected):
         raise HTTPException(422, "Too many moves for this exercise")
     for index, text in enumerate(body.moves):
+        if index >= len(expected): raise HTTPException(422, "The submitted moves extend beyond the verified exercise branch")
         try:
             move = parse_move(board, text)
         except ValueError as exc:
@@ -138,14 +157,17 @@ def attempt_exercise(exercise_id: str, body: AttemptRequest, db: DB, user: Playe
             failure_board, failure_move = board.copy(stack=False), move
             criterion = data["criterion"]
             if index:
-                criterion = {"kind": "capture", "min_value": 1} if board.is_capture(expected_move) else {"kind": "engine"}
+                criterion = {"kind": "capture", "min_value": 1} if data["category"] in ("forks", "skewers") and board.is_capture(expected_move) else {"kind": "engine"}
             failure_criterion = criterion
-            if index % 2 == 0 and (len(expected) == 1 or index == len(expected) - 1):
+            if index % 2 == 0:
                 correct, evidence = grade_alternative(board, move, {**data, "criterion": criterion})
             else:
                 correct = False
+            if correct and index < len(expected) - 1:
+                expected = alternative_line(board, evidence["played"], submitted[:-1], exercise, user.preferences.get("complexity", "beginner"))
             board.push(move)
-            break
+            if not correct: break
+            continue
         board.push(move)
     complete = correct and len(body.moves) == len(expected)
     reply = None
@@ -155,92 +177,82 @@ def attempt_exercise(exercise_id: str, body: AttemptRequest, db: DB, user: Playe
         board.push(response)
         complete = len(body.moves) + 1 == len(expected)
     hints = _effective_hints(db, user.id, exercise.id, body.hint_level)
-    db.add(ExerciseAttempt(user_id=user.id, exercise_id=exercise.id, topic=exercise.category,
-                           moves=submitted, correct=correct, complete=complete, hint_level=hints, evidence=evidence))
+    retries = _retries_since_solve(db, user.id, exercise.id)
+    independent = complete and not hints and not retries
+    evidence.update(retry_count=retries, independent=independent, difficulty=data["difficulty"], accepted_solution=expected)
+    attempt = ExerciseAttempt(user_id=user.id, exercise_id=exercise.id, topic=exercise.category,
+                           moves=submitted, correct=correct, complete=complete, hint_level=hints, evidence=evidence)
+    db.add(attempt)
     if complete or not correct:
-        update_schedule(db, user.id, exercise, correct, hints)
+        update_schedule(db, user.id, exercise, correct, max(hints, int(bool(retries))))
     db.commit()
     lesson = localized_exercise(data, language)
+    if complete and evidence.get("played"):
+        lesson["explanation"] = move_idea(move_facts(failure_board, failure_move), language) + (
+            " Motoren vurderer dit alternativ tæt på sit bedste valg fra samme stilling." if language == "da" else
+            " The engine rates your alternative close to its top choice from the same position.")
+    elif complete and body.branch_id and expected != data["solution"]:
+        lesson["explanation"] = move_idea(move_facts(chess.Board(data["fen"]), chess.Move.from_uci(submitted[0])), language)
     feedback = (("Godt set. " if language == "da" else "Well spotted. ") + lesson["explanation"]) if complete else (
         ("Trækket passer. Find næste træk i varianten." if language == "da" else "That move fits. Find the next move in the continuation.") if correct else
         retry_feedback(failure_board, failure_move, failure_criterion, evidence, language))
     result = {"correct": correct, "complete": complete, "feedback": feedback,
-              "fen": board.fen() if correct else data["fen"], "reply": reply, "hint_level": hints}
+              "fen": board.fen() if correct else data["fen"], "reply": reply, "hint_level": hints,
+              "independent": independent, "retry_count": retries}
+    result["branch_id"] = attempt.id if correct else None
     if complete:
-        result.update(solution=expected, explanation=lesson["explanation"], evidence=data.get("evidence", {}))
+        # Playback must show the accepted line, including an engine-verified alternative.
+        accepted = submitted + ([reply] if reply else [])
+        supporting = ({**evidence["played"], "fen": failure_board.fen(), "objective_verified": True}
+                      if evidence.get("played") else data.get("evidence", {}))
+        if body.branch_id and expected != data["solution"]:
+            supporting = {"fen": data["fen"], "pv_uci": accepted, "objective_verified": True, "branch_id": body.branch_id}
+        result.update(solution=accepted, explanation=lesson["explanation"], evidence=supporting)
+        original = data.get("evidence", {}).get("original_move")
+        if original:
+            original_san = chess.Board(data["fen"]).san(chess.Move.from_uci(original))
+            comparison = (f"I partiet spillede du {original_san}. Den nye motoranalyse foretrækker den fortsættelse, du nu har fundet." if language == "da" else
+                          f"In your game you played {original_san}. Fresh engine analysis prefers the continuation you have now found.")
+            result["feedback"] += " " + comparison
+            result["comparison"] = {"original_move": original, "original_san": original_san, "text": comparison}
     return result
 
 
 @router.post("/exercises/{exercise_id}/hint")
 def exercise_hint(exercise_id: str, body: HintRequest, db: DB, user: Player) -> dict:
     exercise = accessible(db, user, exercise_id)
-    hints = localized_exercise(exercise.data, user.preferences.get("coach_language", "en"))["hints"]
+    data = exercise.data
+    expected = expected_line(db, user.id, exercise, body.branch_id)
+    language = user.preferences.get("coach_language", "en")
+    hints = localized_exercise(data, language)["hints"]
+    board = chess.Board(data["fen"])
+    if len(body.moves) >= len(expected) or len(body.moves) % 2:
+        raise HTTPException(422, "Request a hint before your next move in the exercise")
+    try:
+        for index, text in enumerate(body.moves):
+            move = parse_move(board, text)
+            if move != parse_move(board, expected[index]):
+                raise ValueError("The continuation does not match this exercise")
+            board.push(move)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    next_move = parse_move(board, expected[len(body.moves)])
+    if body.moves:
+        source = chess.square_name(next_move.from_square)
+        hints = (["Undersøg skakker, slag og trusler i den nye stilling.",
+                  "Beregn modstanderens bedste svar, før du vælger din fortsættelse.",
+                  f"Se på brikken på {source}.", f"Prøv {board.san(next_move)}."] if language == "da" else
+                 ["Scan checks, captures, and threats in the new position.",
+                  "Calculate the opponent’s strongest response before choosing your continuation.",
+                  f"Look at the piece on {source}.", f"Try {board.san(next_move)}."])
     level = min(body.level, len(hints))
     db.add(HintEvent(user_id=user.id, exercise_id=exercise_id, level=level))
     db.commit()
     result = {"text": hints[level - 1], "level": level}
     if level == 4:
-        result["move"] = exercise.data["solution"][0]
+        result["move"] = next_move.uci()
+        result["fen"] = board.fen()
     return result
-
-
-def progress_data(db: Session, user: User) -> dict:
-    attempts = db.scalars(select(ExerciseAttempt).where(ExerciseAttempt.user_id == user.id)
-                         .order_by(ExerciseAttempt.created_at)).all()
-    topics: dict[str, dict] = {t: {"topic": t, "attempts": 0, "correct": 0, "independent": 0} for t in CATEGORIES}
-    timeline: dict[str, dict] = defaultdict(lambda: {"attempts": 0, "correct": 0})
-    for attempt in attempts:
-        if attempt.correct and not attempt.complete:
-            continue
-        entry = topics[attempt.topic]
-        entry["attempts"] += 1
-        entry["correct"] += int(attempt.correct)
-        entry["independent"] += int(attempt.correct and not attempt.hint_level)
-        day = attempt.created_at.date().isoformat()
-        timeline[day]["attempts"] += 1
-        timeline[day]["correct"] += int(attempt.correct)
-    for topic in topics.values():
-        topic["accuracy"] = round(topic["correct"] / topic["attempts"], 3) if topic["attempts"] else 0
-        topic["strength"] = "developing" if topic["attempts"] < 3 else "strength" if topic["independent"] / topic["attempts"] >= .8 else "practice"
-    total, correct = sum(t["attempts"] for t in topics.values()), sum(t["correct"] for t in topics.values())
-    games = db.scalars(select(Game).where(Game.user_id == user.id)).all()
-    mistakes: dict[str, int] = defaultdict(int)
-    games_played = 0
-    for game in games:
-        board = chess.Board(game.initial_fen)
-        for move in game.moves:
-            feedback = move.get("feedback") or {}
-            if board.turn == (game.player_color == "white") and feedback.get("classification") in ("Mistake", "Blunder"):
-                topic = "endgame" if len(board.piece_map()) <= 10 else "opening" if board.fullmove_number <= 10 else "middlegame"
-                best_uci = (feedback.get("best") or {}).get("uci")
-                if best_uci:
-                    try:
-                        best_move = parse_move(board, best_uci)
-                        for motif_topic, kind in (("forks", "fork"), ("pins", "pin"), ("skewers", "skewer")):
-                            if objective_met(board, best_move, {"kind": kind}):
-                                topic = motif_topic
-                                break
-                    except ValueError:
-                        pass
-                mistakes[topic] += 1
-            board.push_uci(move["uci"])
-        games_played += bool(game.moves)
-    due = db.scalars(select(LearningProgress).where(LearningProgress.user_id == user.id, LearningProgress.due_at <= now())).all()
-    ranked = sorted(topics.values(), key=lambda x: (x["accuracy"] if x["attempts"] else .65) - min(.5, mistakes[x["topic"]] * .1))
-    recommendations = [{"topic": t["topic"], "reason": (
-        "Review this concept after mistakes in your games." if mistakes[t["topic"]] else
-        "Strengthen a topic that has been difficult." if t["attempts"] else "Build a foundation with a short lesson."),
-        "label": t["topic"].title(), "kind": t["topic"]} for t in ranked[:3]]
-    hint_count = len(db.scalars(select(HintEvent.id).where(HintEvent.user_id == user.id)).all())
-    hint_count += len(db.scalars(select(HintUsage.id).where(HintUsage.user_id == user.id)).all())
-    if user.preferences.get("language") == "da":
-        labels = {"forks": "Gafler", "pins": "Bindinger", "skewers": "Spidninger", "opening": "Åbning", "middlegame": "Midtspil", "endgame": "Slutspil"}
-        for item in recommendations:
-            item.update(label=labels[item["topic"]], reason="Øv et emne med fejl i dine partier." if mistakes[item["topic"]] else "Styrk dette emne med en kort øvelse.")
-    return {"games_played": games_played, "attempts": total, "correct": correct,
-            "accuracy": round(correct / total, 3) if total else 0, "hints_used": hint_count,
-            "topics": list(topics.values()), "recommendations": recommendations, "due_reviews": len(due),
-            "game_mistakes": dict(mistakes), "timeline": [{"date": date, **v} for date, v in sorted(timeline.items())]}
 
 
 @router.get("/progress", response_model=ProgressView)
@@ -259,12 +271,18 @@ def create_session(body: SessionRequest, db: DB, user: Player) -> dict:
         available = [x for x in available if x.source_game_id]
     schedules = {p.exercise_id: p for p in db.scalars(select(LearningProgress).where(LearningProgress.user_id == user.id))}
     current = now()
-    weak = {t["topic"]: t["accuracy"] for t in progress_data(db, user)["topics"] if t["attempts"]}
+    progress = progress_data(db, user)
+    topics = {t["topic"]: t for t in progress["topics"]}
+    repeated = {entry["exercise_id"] for entry in progress["repeated_mistakes"]}
     def priority(exercise: Exercise) -> tuple:
         schedule = schedules.get(exercise.id)
         due = schedule.due_at.replace(tzinfo=timezone.utc) if schedule else None
+        topic = topics[exercise.category]
         return (0 if due and due <= current else 1 if schedule is None else 2,
-                weak.get(exercise.category, .6), schedule.streak if schedule else 0, exercise.data["difficulty"], exercise.id)
+                0 if exercise.id in repeated else 1,
+                (topic["mastery"] if topic["attempts"] else .6) - min(.5, progress["game_mistakes"].get(exercise.category, 0) * .1),
+                abs(exercise.data["difficulty"] - topic["suggested_difficulty"]),
+                schedule.streak if schedule else 0, exercise.id)
     if body.kind == "review":
         available = [x for x in available if x.id in schedules]
     ordered = sorted(available, key=priority)
@@ -292,16 +310,17 @@ def get_session(session_id: str, db: DB, user: Player) -> dict:
 
 
 @router.post("/games/{game_id}/exercises")
-def exercises_from_game(game_id: str, db: DB, user: Player) -> dict:
+def exercises_from_game(game_id: str, db: DB, user: Player, ply: Annotated[int | None, Query(ge=0)] = None) -> dict:
     game = db.get(Game, game_id)
     if game is None or game.user_id != user.id:
         raise HTTPException(404, "Game not found")
     board, created = chess.Board(game.initial_fen), []
+    mastery = {topic["topic"]: topic["mastery"] for topic in progress_data(db, user)["topics"] if topic["attempts"]}
     existing = set(db.scalars(select(Exercise.id).where(Exercise.source_game_id == game_id)))
     for index, played in enumerate(game.moves):
         exercise_id = f"game-{game_id}-{index}"
         reported = played.get("feedback") or {}
-        if (board.turn == (game.player_color == "white") and exercise_id not in existing
+        if ((ply is None or ply == index) and board.turn == (game.player_color == "white") and exercise_id not in existing
                 and reported.get("classification") in ("Mistake", "Blunder") and len(created) < 5):
             try:
                 grade = engine_service.grade(board, chess.Move.from_uci(played["uci"]), time_ms=400)
@@ -309,7 +328,8 @@ def exercises_from_game(game_id: str, db: DB, user: Player) -> dict:
                 raise HTTPException(503, "Stockfish is needed to verify game-derived exercises.") from exc
             best = grade["best"]
             best_move = chess.Move.from_uci(best["uci"])
-            if grade["loss_cp"] >= 100 and best_move.uci() != played["uci"]:
+            if (grade["loss_cp"] >= 100 and best_move.uci() != played["uci"]
+                    and grade.get("classification") != "Uncertain"):
                 category, criterion = None, None
                 for topic, kind in [("forks", "fork"), ("pins", "pin"), ("skewers", "skewer")]:
                     if objective_met(board, best_move, {"kind": kind}):
@@ -317,25 +337,53 @@ def exercises_from_game(game_id: str, db: DB, user: Player) -> dict:
                         break
                 if category is None and objective_met(board, best_move, {"kind": "capture", "min_value": 3}):
                     category, criterion = "middlegame", {"kind": "capture", "min_value": 3}
+                if category is None:
+                    category = "endgame" if len(board.piece_map()) <= 10 else "opening" if board.fullmove_number <= 10 else "middlegame"
+                    criterion = {"kind": "engine"}
                 if category:
-                    objective = {"forks": "Create a fork attacking two valuable pieces.",
+                    objective = ({"forks": "Create a fork attacking two valuable pieces.",
                                  "pins": "Create an absolute pin against the king.",
                                  "skewers": "Create a skewer through the king.",
-                                 "middlegame": "Find the sound capture of a valuable piece."}[category]
+                                 "middlegame": "Find the sound capture of a valuable piece."}.get(category)
+                                 if criterion["kind"] != "engine" else
+                                 "Find a stronger continuation, checking the opponent’s strongest reply.")
+                    solution, checks = verified_continuation(board, best, category, user.preferences.get("complexity", "beginner"), mastery.get(category))
                     data = {"id": exercise_id, "title": f"Your game, move {board.fullmove_number}",
                             "category": category, "difficulty": 2, "fen": board.fen(), "objective": objective,
-                            "solution": [best_move.uci()], "criterion": criterion,
+                            "solution": solution, "criterion": criterion,
                             "explanation": "This move meets the stated objective and is preferred by a fresh comparison from the original position. " + best["explanation"],
                             "hints": ["Scan checks, captures, and threats.", objective,
                                       f"Look at the piece on {chess.square_name(best_move.from_square)}.", f"Try {best['san']}."],
-                            "tags": [category, "your-games"], "evidence": {**best, "objective_verified": True,
+                            "tags": [category, "your-games"] + (["calculation"] if len(solution) > 1 else []),
+                            "evidence": {**best, "objective_verified": True, "continuation_checks": checks,
                                 "source_game_id": game_id, "ply": index, "original_move": played["uci"], "loss_cp": grade["loss_cp"]}}
                     validate_structure(data)
                     db.add(Exercise(id=exercise_id, category=category, data=data, owner_id=user.id, source_game_id=game_id))
-                    created.append(public_exercise(data))
+                    created.append(public_exercise(localized_exercise(data, user.preferences.get("language", "en"))))
         board.push_uci(played["uci"])
     db.commit()
     return {"exercises": created, "count": len(created), "message": "Only freshly verified, instructive positions become exercises."}
+
+
+class RetryRequest(BaseModel):
+    ply: int = Field(ge=0)
+
+
+@router.post("/games/{game_id}/retry", response_model=ExerciseView)
+def retry_game_position(game_id: str, body: RetryRequest, db: DB, user: Player) -> dict:
+    game = db.get(Game, game_id)
+    if game is None or game.user_id != user.id:
+        raise HTTPException(404, "Game not found")
+    if body.ply >= len(game.moves):
+        raise HTTPException(422, "Choose a played move to retry")
+    exercise_id = f"game-{game_id}-{body.ply}"
+    exercise = db.get(Exercise, exercise_id)
+    if exercise is None:
+        exercises_from_game(game_id, db, user, ply=body.ply)
+        exercise = db.get(Exercise, exercise_id)
+    if exercise is None:
+        raise HTTPException(422, "This move is not a confidently verified player mistake. Use Explore to practice it freely.")
+    return public_exercise(localized_exercise(exercise.data, user.preferences.get("language", "en")))
 
 
 class RepertoireRequest(BaseModel):

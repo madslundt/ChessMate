@@ -73,6 +73,51 @@ def test_hint_levels_do_not_reveal_candidates_early(signed):
         response = signed.post("/api/hint", json={"fen": chess.STARTING_FEN, "level": level})
         assert response.status_code == 200, response.text
         assert bool(response.json().get("candidates")) == (level == 4)
+        if level <= 2:
+            assert response.json().get("highlight_move") is None
+            assert not response.json().get("insights") and not response.json().get("variations")
+
+
+def test_imported_game_analysis_is_resumable_grades_both_sides_and_preserves_moves(signed, monkeypatch):
+    from src.backend.engine import engine_service
+    calls = []
+    def grade(board, move, **kwargs):
+        calls.append((board.fen(), move.uci()))
+        return {"fen": board.fen(), "move": move.uci(), "classification": "Good", "confidence": "engine_estimate",
+                "text": "Good. Your move develops your position.", "facts": {}}
+    monkeypatch.setattr(engine_service, "grade", grade)
+    game = start(signed, mode="analysis", pgn="1. e4 e5 2. Nf3 Nc6 *")
+    url = f"/api/games/{game['id']}"
+    first = signed.post(url + "/analyze", json={"revision": 0, "limit": 2})
+    assert first.status_code == 200, first.text
+    assert first.json() == {"game_id": game["id"], "revision": 1, "analyzed": 2, "total": 4, "next_ply": 2, "complete": False}
+    assert signed.post(url + "/analyze", json={"revision": 0, "start_ply": 2}).status_code == 409
+    second = signed.post(url + "/analyze", json={"revision": 1, "start_ply": 2})
+    assert second.status_code == 200 and second.json()["complete"]
+    assert len(calls) == 4
+    analyzed = signed.get(url).json()
+    assert analyzed["fen"] == game["fen"]
+    assert [record["uci"] for record in analyzed["moves"]] == [record["uci"] for record in game["moves"]]
+    black = analyzed["moves"][1]["feedback"]
+    assert black["actor"] == "opponent" and black["actor_color"] == "black"
+    assert "Black's" in black["text"] and "Your" not in black["text"]
+
+
+def test_opponent_feedback_does_not_reveal_the_learners_best_reply(signed, monkeypatch):
+    from src.backend.engine import engine_service
+    monkeypatch.setattr(engine_service, "play", lambda board, difficulty: board.parse_san("e5"))
+    def grade(board, move, **kwargs):
+        return {"fen": board.fen(), "move": move.uci(), "classification": "Mistake", "confidence": "engine_estimate",
+                "text": "The engine's top choice was c5. Its strongest reply to your move is Nf3; your move gives up evaluation.",
+                "best": {"san": "c5"}, "played": {"pv": ["e5", "Nf3"], "pv_uci": ["e7e5", "g1f3"]}}
+    monkeypatch.setattr(engine_service, "grade", grade)
+    game = start(signed, pgn="1. e4 *")
+    response = signed.post(f"/api/games/{game['id']}/computer", json={"revision": 0})
+    assert response.status_code == 200, response.text
+    feedback = response.json()["moves"][-1]["feedback"]
+    assert feedback["actor"] == "opponent" and "Black's" in feedback["text"]
+    assert "Nf3" not in feedback["text"] and "c5" not in feedback["text"]
+    assert "pv" not in feedback["played"]
 
 
 def test_coach_correct_board_offline_and_stale(signed):
@@ -137,6 +182,30 @@ def test_historical_coaching_context_never_contains_future_moves(signed, monkeyp
     assert [m["san"] for m in context["game"]["recent_moves"]] == ["e4"]
     assert context["game"]["last_move"]["san"] == "e4"
     assert context["fen"] == fen
+
+
+def test_coach_preserves_game_repetition_history_without_contaminating_earlier_positions(signed, monkeypatch):
+    from src.backend.coach import coach_service
+    game = start(signed, mode="analysis", pgn="1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6 4. Ng1 Ng8 *")
+    captured = []
+    original = coach_service.context
+    def observe(board, *args, **kwargs):
+        captured.append({"stack": [move.uci() for move in board.move_stack], "repetition": board.can_claim_threefold_repetition()})
+        return original(board, *args, **kwargs)
+    monkeypatch.setattr(coach_service, "context", observe)
+    request = {"game_id": game["id"], "revision": 0, "question": "What should I do now?", "teaching_mode": "guided"}
+    terminal = signed.post("/api/coach", json={**request, "fen": game["fen"]})
+    assert terminal.status_code == 200, terminal.text
+    assert captured[-1]["repetition"] and len(captured[-1]["stack"]) == 8
+    assert "threefold repetition" in terminal.text and "finished position" in terminal.text
+    assert "Which legal checks and captures" not in terminal.text
+    earlier = signed.post("/api/coach", json={**request, "fen": game["moves"][2]["fen"]})
+    assert earlier.status_code == 200, earlier.text
+    assert not captured[-1]["repetition"] and captured[-1]["stack"] == ["g1f3", "g8f6", "f3g1"]
+    assert "threefold repetition" not in earlier.text
+    variation = signed.post("/api/coach", json={**request, "fen": game["moves"][2]["fen"], "moves": ["f6g8"], "explore": True})
+    assert variation.status_code == 200, variation.text
+    assert captured[-1]["stack"] == ["g1f3", "g8f6", "f3g1", "f6g8"] and not captured[-1]["repetition"]
 
 
 def test_previous_move_explanation_and_persisted_conversation(signed):
