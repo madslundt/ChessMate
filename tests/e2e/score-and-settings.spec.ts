@@ -141,7 +141,7 @@ test('endpoint model catalog, refresh, and custom model selection persist', asyn
     await expect(page.getByText('Connection saved', { exact: true })).toBeVisible();
     await page.reload();
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
-    await expect(selector.locator('option', { value: 'model:local-alpha' })).toHaveCount(1);
+    await expect(selector.locator('option[value="model:local-alpha"]')).toHaveCount(1);
     await expect(selector).toHaveValue('custom');
     await expect(page.getByLabel('Custom model name', { exact: true })).toHaveValue('my-private-alias');
     await selector.selectOption({ label: 'local-alpha' });
