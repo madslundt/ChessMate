@@ -93,7 +93,7 @@ test("material tracks history and exploration; LLM connection saves privately", 
   await page.route("**/api/settings/llm/models", (route) =>
     route.fulfill({ json: { models: [] } }),
   );
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page
     .getByLabel("LLM endpoint", { exact: true })
     .fill("http://host.docker.internal:8000/v1");
@@ -127,7 +127,7 @@ test("material tracks history and exploration; LLM connection saves privately", 
     page.getByLabel("API key (optional)", { exact: true }),
   ).toHaveValue("");
   await page.reload();
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(page.getByLabel("LLM endpoint", { exact: true })).toHaveValue(
     "http://host.docker.internal:8000/v1",
   );
@@ -194,7 +194,7 @@ test("endpoint model catalog, refresh, and custom model selection persist", asyn
     const endpoint = `http://${process.env.E2E_MODEL_HOST || "host.docker.internal"}:${(server.address() as AddressInfo).port}/v1`;
     const headers = await createProfile(page, "models");
     await page.goto("/");
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
     await page.getByLabel("LLM endpoint", { exact: true }).fill(endpoint);
     const selector = page.getByRole("combobox", { name: "Model", exact: true });
     await expect(selector.locator("option")).toHaveText([
@@ -245,7 +245,7 @@ test("endpoint model catalog, refresh, and custom model selection persist", asyn
       page.getByText("Connection saved", { exact: true }),
     ).toBeVisible();
     await page.reload();
-    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
     await expect(
       selector.locator('option[value="model:local-alpha"]'),
     ).toHaveCount(1);

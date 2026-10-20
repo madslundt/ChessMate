@@ -69,9 +69,8 @@ async function board(
   });
   await page.addInitScript(() => {
     localStorage.setItem('chessmate.profile', 'movement-profile');
-    localStorage.setItem('chessmate.game', 'movement-test');
   });
-  await page.goto('/');
+  await page.goto('/play/movement-test');
   await expect(page.getByTestId('chessboard')).toHaveAttribute(
     'aria-label',
     `${new Chess(initialFen).turn() === 'w' ? 'White' : 'Black'} to move`,
@@ -108,7 +107,7 @@ test('legal destinations glow immediately while holding and dragging a piece', a
     if (message.type() === 'error' || message.type() === 'warning') consoleErrors.push(message.text());
   });
   const state = await board(page);
-  expect(new URL(page.url()).pathname).toBe('/');
+  expect(new URL(page.url()).pathname).toBe('/play/movement-test');
   await expect(page).toHaveTitle('Chessmate');
   await expect(page.locator('vite-error-overlay')).toHaveCount(0);
   const source = (await piece(page, 'e2', 'wP').boundingBox())!;

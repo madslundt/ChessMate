@@ -7,6 +7,12 @@ from .engine import score_number
 PIECES_DA = {"pawn": "bonde", "knight": "springer", "bishop": "løber", "rook": "tårn", "queen": "dronning", "king": "konge"}
 
 
+def review_requested(context: dict) -> bool:
+    question = context["question"].lower()
+    return any(term in question for term in ("so far", "my moves", "how am i", "how have i", "how did i",
+        "review my", "my play", "mine træk", "indtil nu", "hvordan har jeg", "mit spil"))
+
+
 def reveal_requested(context: dict) -> bool:
     question = context["question"].lower()
     if any(word in question for word in ("without revealing", "no spoilers", "uden at afsløre")): return False
@@ -194,6 +200,20 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
     if not learner_turn:
         for key in ("comparison", "line_0", "line_1", "line_2", "line_3", "line_4"):
             if key in statements: statements[key] = f"For {root_name}: " + statements[key]
+    if review_requested(context):
+        # Use only stored pre-move assessments supplied for the selected position.
+        labels = {"Best": "bedste træk", "Excellent": "fremragende", "Good": "godt træk",
+                  "Inaccuracy": "unøjagtighed", "Mistake": "fejl", "Blunder": "alvorlig fejl",
+                  "Forced": "tvunget træk", "Uncertain": "usikker vurdering"}
+        counts = {label: context.get("game", {}).get("assessment_counts", {}).get(label, 0) for label in labels}
+        assessed = sum(counts.values())
+        if assessed:
+            grades = ", ".join(f"{count} {labels[label] if da else label}" for label, count in counts.items() if count)
+            statements["review"] = (f"Gennemgået {assessed} af dine træk frem til denne stilling: {grades}. Vurderingerne er estimater fra korte søgninger." if da else
+                f"Reviewed {assessed} of your moves up to this position: {grades}. These grades are short-search estimates.")
+        else:
+            statements["review"] = ("Der er endnu ingen vurderede træk at gennemgå i denne stilling. Spil et træk i et træningsparti for at få en vurdering." if da else
+                "There are no assessed moves to review at this position yet. Play a move in a training game to get an assessment.")
     decision = context.get("game", {}).get("last_player_decision")
     if decision and decision.get("feedback", {}).get("fen") == decision.get("before_fen"):
         feedback = decision["feedback"]
@@ -225,7 +245,9 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
 def fallback_keys(context: dict, statements: dict, reveal: bool) -> list[str]:
     question = context["question"].lower()
     keys = [key for key in ("terminal", "turn", "check", "offline") if key in statements]
-    if any(word in question for word in ("last", "bad", "mistake", "why was", "blunder", "previous", "sidste", "fejl", "hvorfor var")):
+    if review_requested(context) and "review" in statements:
+        keys.insert(0, "review")
+    if review_requested(context) or any(word in question for word in ("last", "bad", "mistake", "why was", "blunder", "previous", "sidste", "fejl", "hvorfor var")):
         keys += [key for key in ("previous_assessment", "previous_reason", "previous_consequence") if key in statements]
     if any(word in question for word in ("castle", "rokad", "king safety", "kongens sikker")): keys.append("castle")
     if "unavailable_piece" in statements: keys.append("unavailable_piece")

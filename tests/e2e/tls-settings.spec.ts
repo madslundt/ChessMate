@@ -50,7 +50,7 @@ test('certificate verification defaults on; explicit ignore persists and resets 
     await page.addInitScript((id) => localStorage.setItem('chessmate.profile', id), profileId!);
     await page.goto('/');
     await expect(page).toHaveTitle(/Chessmate/);
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('link', { name: 'Settings', exact: true }).click();
     const mode = page.getByLabel('HTTPS certificate', { exact: true });
     await expect(mode).toHaveValue('verify');
     const endpoint = `https://${process.env.E2E_MODEL_HOST || 'host.docker.internal'}:${(server.address() as AddressInfo).port}/v1`;
@@ -70,7 +70,7 @@ test('certificate verification defaults on; explicit ignore persists and resets 
     const saved = await page.request.get('/api/settings/llm', { headers: { 'X-Profile-ID': profileId! } });
     expect((await saved.json()).verify_tls).toBe(false);
     await page.reload();
-    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByRole('link', { name: 'Settings', exact: true }).click();
     await expect(mode).toHaveValue('ignore');
     await expect(page.getByText('Available models loaded from your endpoint.', { exact: true })).toBeVisible();
     await mkdir('/tmp/chessmate-tls-settings', { recursive: true });

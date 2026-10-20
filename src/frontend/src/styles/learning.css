@@ -52,7 +52,7 @@
   overflow: auto;
   scrollbar-width: none;
 }
-.category-tabs button {
+.category-tabs [role="tab"] {
   background: none;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -61,7 +61,7 @@
   font-size: 12px;
   white-space: nowrap;
 }
-.category-tabs button.selected {
+.category-tabs [role="tab"].selected {
   background: var(--accent);
   color: var(--surface);
 }

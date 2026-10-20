@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { ErrorNotice, Field, Modal, Spinner } from './components';
+import { ErrorNotice, Field, Modal, PageHeading, Spinner } from './components';
 import { useT } from './i18n';
 import type { Color, Preferences } from './types';
+import { Link } from './navigation';
 
 export function GameSetup({
   analysisMode,
@@ -104,5 +105,48 @@ export function ImportModal({
         </button>
       </form>
     </Modal>
+  );
+}
+
+export function GameLoading({
+  analysisMode,
+  preferences,
+  pending,
+  error,
+  onRetry,
+}: {
+  analysisMode: boolean;
+  preferences: Preferences;
+  pending: boolean;
+  error: unknown;
+  onRetry: () => void;
+}) {
+  const t = useT();
+  return (
+    <>
+      <PageHeading title={t(analysisMode ? 'analyze' : 'play')} />
+      {pending ? (
+        <Spinner label={t('thinking')} />
+      ) : (
+        <>
+          <ErrorNotice
+            error={
+              error ||
+              new Error(
+                preferences.language === 'da'
+                  ? 'Spillet hører til en anden side.'
+                  : 'This game belongs to a different workspace.',
+              )
+            }
+          />
+          <button className="outline-button" onClick={onRetry}>
+            {preferences.language === 'da' ? 'Prøv igen' : 'Try again'}
+          </button>
+          <Link className="primary-button" href={analysisMode ? '/analyze' : '/play'}>
+            {t('newGame')}
+          </Link>
+        </>
+      )}
+    </>
   );
 }

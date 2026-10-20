@@ -148,7 +148,7 @@ test('black receives one opening and one reply, cancels a pending navigation tim
   const headers = await createProfile(page);
   const game = await start(page, 'black');
   // Leaving immediately must cancel a scheduled opening move until the game is resumed.
-  await page.getByRole('button', { name: 'Game history', exact: true }).click();
+  await page.getByRole('link', { name: 'Game history', exact: true }).click();
   await expect(page.locator('.history-row')).toHaveCount(1);
   await page.waitForTimeout(1200);
   expect(count(game.id)).toBe(0);

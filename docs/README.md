@@ -92,6 +92,8 @@ LLM credentials stay in backend environment variables. They are not part of the 
 
 An actual container-to-container OpenAI-compatible protocol fixture passed: valid streamed evidence selection produced `local_llm_verified`; malformed JSON, illegal move/variation references, and a timeout produced deterministic fallback. Context checks covered exact FEN, learner color, side to move, legal moves, requested candidate, and legal engine variation. This verifies the adapter protocol, not model inference quality. A real Qwen/DGX Spark endpoint has not been tested because none was supplied.
 
+Reasoning models can consume the short selection budget on thinking tokens without returning the required JSON. If your provider supports it, set `LLM_REASONING_EFFORT=none` to request a direct selection. Leave it blank for providers that do not accept `reasoning_effort`. With Qwen-compatible servers, disabling thinking is documented in the [vLLM reasoning controls](https://docs.vllm.ai/en/stable/features/reasoning_outputs/). Model failures now show a specific fallback reason in chat rather than labeling every failure as offline. Game-review questions use the saved pre-move grades available up to the selected position, including without a model.
+
 ## LAN, mobile, and HTTPS
 
 For access from an iPhone, iPad, or another computer, set `BIND_ADDRESS` to the server's LAN address, or `0.0.0.0`, and add the full browser URL to `ALLOWED_ORIGINS`:

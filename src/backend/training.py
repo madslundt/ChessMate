@@ -276,6 +276,21 @@ def create_session(body: SessionRequest, db: DB, user: Player) -> dict:
             "exercises": [public_exercise(localized_exercise(x.data, user.preferences.get("language", "en"))) for x in selected]}
 
 
+@router.get("/training/sessions/{session_id}")
+def get_session(session_id: str, db: DB, user: Player) -> dict:
+    session = db.get(TrainingSession, session_id)
+    if session is None or session.user_id != user.id:
+        raise HTTPException(404, "Training session not found")
+    exercises = db.scalars(select(Exercise).where(
+        Exercise.id.in_(session.exercise_ids),
+        or_(Exercise.owner_id.is_(None), Exercise.owner_id == user.id),
+    )).all()
+    by_id = {exercise.id: exercise for exercise in exercises}
+    return {"id": session.id, "kind": session.kind, "minutes": session.minutes,
+            "exercises": [public_exercise(localized_exercise(by_id[exercise_id].data, user.preferences.get("language", "en")))
+                          for exercise_id in session.exercise_ids if exercise_id in by_id]}
+
+
 @router.post("/games/{game_id}/exercises")
 def exercises_from_game(game_id: str, db: DB, user: Player) -> dict:
     game = db.get(Game, game_id)

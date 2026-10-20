@@ -156,12 +156,21 @@ def coach(data: CoachRequest, user: User = Depends(current_user), db: Session = 
             raise HTTPException(409, "The coaching position does not match this game")
         visible_moves = game.moves[:selected_ply] if selected_ply is not None else []
         # Future actual moves must never contaminate a historical or hypothetical board context.
-        last_decision = next((m for m in reversed(visible_moves) if m.get("feedback")), None)
+        player_decisions = [m for m in visible_moves if m.get("feedback") and
+                            (game.mode == "analysis" or m.get("color") == game.player_color)]
+        last_decision = player_decisions[-1] if player_decisions else None
+        assessment_counts = {}
+        for decision in player_decisions:
+            feedback = decision["feedback"]
+            if feedback.get("fen") == decision.get("before_fen"):
+                label = feedback.get("classification", "Uncertain")
+                assessment_counts[label] = assessment_counts.get(label, 0) + 1
         game_context = {"id": game.id, "revision": game.revision, "mode": game.mode, "player_color": game.player_color,
                         "recent_moves": [{"uci": m["uci"], "san": m["san"], "before_fen": m["before_fen"], "fen": m["fen"]} for m in visible_moves[-12:]],
                         "selected_ply": selected_ply, "hypothetical": data.explore,
                         "last_move": visible_moves[-1] if visible_moves else None,
                         "last_player_decision": last_decision,
+                        "assessment_counts": assessment_counts,
                         "actual_game_fen": positions[-1]}
     history = [m.model_dump() for m in data.history[-8:]]
     if not history and data.game_id:
@@ -176,7 +185,7 @@ def coach(data: CoachRequest, user: User = Depends(current_user), db: Session = 
         yield sse("status", {"source": "analyzing", "fen": board.fen(), "revision": data.revision})
         try:
             context = await asyncio.to_thread(coach_service.context, board, prefs, data.question, history, game_context)
-            text, source = await coach_service.respond(board, context, language, llm=llm_connection)
+            text, source, fallback_reason = await coach_service.respond(board, context, language, llm=llm_connection)
             # Persist against the exact FEN; no streamed response can update game state.
             def save_messages():
                 with SessionLocal() as session:
@@ -188,7 +197,8 @@ def coach(data: CoachRequest, user: User = Depends(current_user), db: Session = 
             for start in range(0, len(text), 28):
                 yield sse("token", {"text": text[start:start + 28], "fen": board.fen()})
                 await asyncio.sleep(0)
-            yield sse("done", {"text": text, "source": source, "fen": board.fen(), "revision": data.revision})
+            yield sse("done", {"text": text, "source": source, "fallback_reason": fallback_reason,
+                               "fen": board.fen(), "revision": data.revision})
         except (ValueError, RuntimeError):
             yield sse("error", {"message": "The coaching context could not be verified. Try refreshing this position.", "fen": board.fen()})
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})

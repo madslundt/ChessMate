@@ -24,20 +24,27 @@ import { ErrorNotice, Spinner } from './components';
 import { GameWorkspace } from './GameWorkspace';
 import { Learn } from './Learn';
 import { History, ProgressPage, SettingsPage } from './Pages';
+import { gamePath, Link, navigate, useRoute } from './navigation';
 
 const PROFILE_KEY = 'chessmate.profile';
 
 export function App() {
+  const route = useRoute();
+  const { page, gameId: activeGame } = route;
+  const [lastGames, setLastGames] = useState<Partial<Record<Page, string>>>({
+    ...(activeGame ? { [page]: activeGame } : {}),
+  });
   const queryClient = useQueryClient(),
-    [page, setPage] = useState<Page>('play'),
-    [activeGame, setActiveGame] = useState<string | null>(() => localStorage.getItem('chessmate.game')),
     [profileId, setProfileId] = useState<string | null>(() => localStorage.getItem(PROFILE_KEY)),
     [showProfiles, setShowProfiles] = useState(false),
     [preferences, setPreferences] = useState<Preferences>(defaults),
     [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches),
     [themePending, setThemePending] = useState(false),
     [themeError, setThemeError] = useState<unknown>(null);
-  const profiles = useQuery({ queryKey: ['profiles'], queryFn: () => api<User[]>('/profiles') });
+  const profiles = useQuery({
+    queryKey: ['profiles'],
+    queryFn: () => api<User[]>('/profiles'),
+  });
   const user = profiles.data?.find((profile) => profile.id === profileId) ?? null;
   useEffect(() => {
     if (profiles.isSuccess && profileId && !profiles.data.some((profile) => profile.id === profileId)) {
@@ -59,14 +66,21 @@ export function App() {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     document.documentElement.lang = preferences.language;
   }, [dark, preferences.language]);
+  useEffect(() => {
+    if (activeGame) setLastGames((previous) => ({ ...previous, [page]: activeGame }));
+  }, [activeGame, page]);
+  function pagePath(target: Page) {
+    return lastGames[target] ? `/${target}/${lastGames[target]}` : `/${target}`;
+  }
   function selectProfile(profile: User) {
     if (profileId !== profile.id) {
       localStorage.setItem(PROFILE_KEY, profile.id);
       setProfileId(profile.id);
       queryClient.clear();
-      setActiveGame(null);
-      localStorage.removeItem('chessmate.game');
-      setPage('play');
+      if (user) {
+        setLastGames({});
+        navigate('/play');
+      }
     }
     setShowProfiles(false);
   }
@@ -89,10 +103,8 @@ export function App() {
     }
   }
   function selectGame(game: Game) {
-    setActiveGame(game.id);
-    localStorage.setItem('chessmate.game', game.id);
     queryClient.setQueryData(['game', game.id], game);
-    setPage(game.mode === 'analysis' ? 'analyze' : 'play');
+    navigate(gamePath(game));
   }
   const nav = [
     ['play', Play],
@@ -129,19 +141,12 @@ export function App() {
       ) : (
         <div className="app-shell">
           <aside className="sidebar">
-            <a
-              className="brand"
-              href="#play"
-              onClick={(e) => {
-                e.preventDefault();
-                setPage('play');
-              }}
-            >
+            <Link className="brand" href={pagePath('play')}>
               <span className="brand-mark">♞</span>Chessmate
-            </a>
+            </Link>
             <nav aria-label={preferences.language === 'da' ? 'Hovednavigation' : 'Main navigation'}>
               {nav.map(([key, Icon]) => (
-                <NavItem key={key} name={key} Icon={Icon} active={page === key} onClick={() => setPage(key)} />
+                <NavItem key={key} name={key} Icon={Icon} active={page === key} href={pagePath(key)} />
               ))}
             </nav>
             <div className="sidebar-bottom">
@@ -172,7 +177,12 @@ export function App() {
               <ThemeToggle dark={dark} pending={themePending} onToggle={() => void toggleTheme()} />
             </header>
             <ErrorNotice error={themeError} />
-            {(page === 'play' || page === 'analyze') && (
+            {!route.found && (
+              <ErrorNotice
+                error={new Error(preferences.language === 'da' ? 'Siden blev ikke fundet.' : 'Page not found.')}
+              />
+            )}
+            {route.found && (page === 'play' || page === 'analyze') && (
               <GameWorkspace
                 key={`${page}-${user.id}`}
                 activeGameId={activeGame}
@@ -181,10 +191,10 @@ export function App() {
                 analysisMode={page === 'analyze'}
               />
             )}
-            {page === 'learn' && <Learn preferences={preferences} />}
-            {page === 'history' && <History onResume={selectGame} />}
-            {page === 'progress' && <ProgressPage onLearn={() => setPage('learn')} />}
-            {page === 'settings' && (
+            {route.found && page === 'learn' && <Learn preferences={preferences} route={route} />}
+            {route.found && page === 'history' && <History onResume={selectGame} />}
+            {route.found && page === 'progress' && <ProgressPage onLearn={() => navigate('/learn')} />}
+            {route.found && page === 'settings' && (
               <SettingsPage
                 preferences={preferences}
                 onSaved={(p) => {
@@ -375,28 +385,18 @@ function ThemeToggle({ dark, pending, onToggle }: { dark: boolean; pending: bool
     </button>
   );
 }
-function NavItem({
-  name,
-  Icon,
-  active,
-  onClick,
-}: {
-  name: Page;
-  Icon: typeof Play;
-  active: boolean;
-  onClick: () => void;
-}) {
+function NavItem({ name, Icon, active, href }: { name: Page; Icon: typeof Play; active: boolean; href: string }) {
   const t = useT();
   return (
-    <button
+    <Link
       aria-label={t(name)}
       className={`nav-item ${active ? 'active' : ''}`}
-      onClick={onClick}
+      href={href}
       aria-current={active ? 'page' : undefined}
     >
       <Icon size={21} fill={name === 'play' ? 'currentColor' : 'none'} />
       <span>{t(name)}</span>
       {active && <ChevronRight className="nav-chevron" size={14} />}
-    </button>
+    </Link>
   );
 }

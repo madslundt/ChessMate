@@ -38,6 +38,10 @@ export interface Feedback {
   explanation?: string;
   text?: string;
   takeaway?: string;
+  consequence?: string;
+  alternatives?: Candidate[];
+  best?: Candidate;
+  played?: Candidate;
   cp_loss?: number;
   best_move?: string;
   [key: string]: unknown;
@@ -96,6 +100,7 @@ export interface ChatMessage {
   content: string;
   fen?: string;
   source?: string;
+  fallback_reason?: string;
 }
 export interface Exercise {
   id: string;

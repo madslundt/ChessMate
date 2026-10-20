@@ -17,6 +17,7 @@ import { Empty, ErrorNotice, Field, PageHeading, Spinner, Toggle } from './compo
 import { useT, type TranslationKey } from './i18n';
 import type { Game, Preferences, Progress } from './types';
 import { LlmConnection } from './LlmConnection';
+import { gamePath, Link } from './navigation';
 export function History({ onResume }: { onResume: (g: Game) => void }) {
   const t = useT(),
     games = useQuery({
@@ -37,7 +38,17 @@ export function History({ onResume }: { onResume: (g: Game) => void }) {
       ) : (
         <div className="history-list panel">
           {games.data.map((g) => (
-            <button className="history-row" key={g.id} onClick={() => onResume(g)}>
+            <Link
+              className="history-row"
+              key={g.id}
+              href={gamePath(g)}
+              onClick={(event) => {
+                if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+                  event.preventDefault();
+                  onResume(g);
+                }
+              }}
+            >
               <span className="history-piece">{g.player_color === 'white' ? '♔' : '♚'}</span>
               <div>
                 <strong>
@@ -57,7 +68,7 @@ export function History({ onResume }: { onResume: (g: Game) => void }) {
               <span className="history-result">{g.result === '*' ? t('active') : g.result}</span>
               <span className="history-resume">{t('resume')}</span>
               <ChevronRight size={18} />
-            </button>
+            </Link>
           ))}
         </div>
       )}

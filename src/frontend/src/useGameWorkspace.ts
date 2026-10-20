@@ -4,7 +4,7 @@ import { Chess } from 'chess.js';
 import { api, ApiError } from './api';
 import { replayVariation } from './exploration';
 import { useT } from './i18n';
-import type { Analysis, Candidate, Color, Game, Preferences, Review } from './types';
+import type { Analysis, Candidate, Color, Game, Preferences } from './types';
 const START = new Chess().fen();
 export interface WorkspaceProps {
   activeGameId: string | null;
@@ -33,18 +33,17 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
       fen: string;
       uci: string;
     } | null>(null),
-    [review, setReview] = useState<Review | null>(null),
     [analysis, setAnalysis] = useState<Analysis | null>(null),
     [notice, setNotice] = useState('');
   const lock = useRef(false);
   const computerAttempt = useRef<string | null>(null);
-  const reviewed = useRef<string | null>(null);
   const gameQuery = useQuery({
     queryKey: ['game', activeGameId],
-    queryFn: () => api<Game>(`/games/${activeGameId}`),
+    queryFn: ({ signal }) => api<Game>(`/games/${activeGameId}`, undefined, undefined, signal),
     enabled: !!activeGameId,
+    retry: false,
   });
-  const game = gameQuery.data && (gameQuery.data.mode === 'analysis') === analysisMode ? gameQuery.data : null;
+  const game = gameQuery.data && (analysisMode || gameQuery.data.mode !== 'analysis') ? gameQuery.data : null;
   const at = ply === null ? game?.moves.length || 0 : Math.min(ply, game?.moves.length || 0),
     actualFen = at === 0 ? game?.initial_fen || START : game?.moves[at - 1]?.fen || START;
   const chess = useMemo(() => {
@@ -97,24 +96,8 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     setError(null);
   }, [activeGameId]);
   useEffect(() => {
-    if (gameQuery.error && !(gameQuery.error instanceof ApiError && gameQuery.error.status === 404))
-      setError(gameQuery.error);
+    if (gameQuery.error) setError(gameQuery.error);
   }, [gameQuery.error]);
-  useEffect(() => {
-    if (!game || !finished || analysisMode || explore) return;
-    const key = `${game.id}:${game.revision}`;
-    if (reviewed.current === key) return;
-    reviewed.current = key;
-    let cancelled = false;
-    api<Review>(`/games/${game.id}/review`)
-      .then((result) => {
-        if (!cancelled) setReview(result);
-      })
-      .catch(setError);
-    return () => {
-      cancelled = true;
-    };
-  }, [game?.id, game?.revision, finished, analysisMode]);
   async function create(body: Record<string, unknown> = {}) {
     return api<Game>('/games', {
       mode: analysisMode ? 'analysis' : 'training',
@@ -130,12 +113,14 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     if (g.id !== activeGameId) selectGame(g);
   }
   async function mutate(action: (g: Game) => Promise<Game>) {
-    if (lock.current) return;
+    if (lock.current || (activeGameId && !game)) return;
     lock.current = true;
     setBusy(true);
     setError(null);
     try {
       const g = game || (await create());
+      // Preserve the new game's identity even if its first move fails to save.
+      if (!game) save(g);
       save(await action(g));
     } catch (e) {
       setError(e);
@@ -146,9 +131,14 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     }
   }
   async function play(uci: string) {
-    if (lock.current) return;
+    if (lock.current || (activeGameId && !game)) return;
     if (explore) {
       setExplore({ ...explore, moves: [...explore.moves, uci] });
+      setAnalysis(null);
+      return;
+    }
+    if (analysisMode && game && game.mode !== 'analysis') {
+      setExplore({ base: actualFen, moves: [uci], revision: game.revision, atLatest: false });
       setAnalysis(null);
       return;
     }
@@ -189,16 +179,17 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
       base: actualFen,
       moves: [],
       revision: game?.revision || 0,
-      atLatest,
+      atLatest: atLatest && !(analysisMode && game?.mode !== 'analysis'),
     });
     setAnalysis(null);
   }
-  function preview(c: Candidate) {
+  function preview(c: Candidate, baseFen?: string, rootPly?: number) {
+    if (rootPly !== undefined) setPly(rootPly);
     setExplore({
-      base: fen,
+      base: baseFen || fen,
       moves: c.pv_uci?.length ? c.pv_uci : [c.uci],
       revision: game?.revision || 0,
-      atLatest: !explore && atLatest,
+      atLatest: !baseFen && !explore && atLatest && !(analysisMode && game?.mode !== 'analysis'),
     });
     setAnalysis(null);
   }
@@ -282,13 +273,12 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     error,
     setError,
     busy,
-    review,
-    setReview,
     analysis,
     setAnalysis,
     notice,
     setNotice,
     game,
+    gameQuery,
     at,
     fen,
     boardFen,

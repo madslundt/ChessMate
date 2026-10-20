@@ -303,7 +303,7 @@
   .category-tabs {
     margin-bottom: 0;
   }
-  .category-tabs button {
+  .category-tabs [role="tab"] {
     padding: 8px 13px;
     font-size: 11px;
   }

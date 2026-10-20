@@ -108,3 +108,39 @@
   min-width: 40px;
   color: var(--ink);
 }
+
+.blunder-review h4 {
+  font-size: 12px;
+  margin: 15px 0 7px;
+}
+.blunder-review h4:first-child {
+  margin-top: 12px;
+}
+.blunder-review .blunder-reply {
+  margin-top: 9px;
+}
+.blunder-alternatives {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.blunder-alternatives li {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 10px;
+}
+.blunder-alternatives li > strong {
+  font-size: 13px;
+}
+.blunder-alternatives li > p {
+  margin: 5px 0;
+}
+.blunder-alternatives .outline-button {
+  min-height: 34px;
+  font-size: 11px;
+  margin-top: 7px;
+  padding: 6px 10px;
+}

@@ -1,22 +1,37 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChartNoAxesColumnIncreasing, ChevronRight, Lightbulb, MessageCircle, Send, Sparkles } from 'lucide-react';
 import { api, streamCoach } from './api';
-import { useT } from './i18n';
+import { useT, type TranslationKey } from './i18n';
 import { evaluationText } from './Board';
 import { ErrorNotice, Spinner } from './components';
+import { GameReview } from './GameReview';
 import type { Analysis, Candidate, ChatMessage, Game, Preferences } from './types';
+const fallbackLabels: Record<string, TranslationKey> = {
+  not_configured: 'coachNotConfigured',
+  timeout: 'coachTimeout',
+  authentication: 'coachAuthentication',
+  tls_certificate: 'coachCertificate',
+  connection: 'coachConnection',
+  server_error: 'coachServerError',
+  busy: 'coachBusy',
+  invalid_response: 'coachInvalidResponse',
+};
 interface Props {
+  reviewMode: boolean;
+  onExplore: () => void;
   fen: string;
   game: Game | null;
   preferences: Preferences;
   exploring: boolean;
-  onPreview: (candidate: Candidate) => void;
+  onPreview: (candidate: Candidate, baseFen?: string, rootPly?: number) => void;
   onNavigate: (ply: number) => void;
   ply: number;
   onAnalysis: (a: Analysis) => void;
   analysis: Analysis | null;
 }
 export function CoachPanel({
+  reviewMode,
+  onExplore,
   fen,
   game,
   preferences,
@@ -28,7 +43,7 @@ export function CoachPanel({
   analysis,
 }: Props) {
   const t = useT(),
-    [tab, setTab] = useState<'coach' | 'moves'>('coach'),
+    [tab, setTab] = useState<'coach' | 'moves' | 'review'>(reviewMode ? 'review' : 'coach'),
     [messages, setMessages] = useState<ChatMessage[]>([]),
     [question, setQuestion] = useState(''),
     [busy, setBusy] = useState(false),
@@ -53,7 +68,7 @@ export function CoachPanel({
   useEffect(() => () => controller.current?.abort(), []);
   useEffect(() => {
     let cancelled = false;
-    if (!game || exploring) return;
+    if (!game || exploring || (reviewMode && tab !== 'coach')) return;
     api<{ messages: ChatMessage[] }>(`/games/${game.id}/conversation?fen=${encodeURIComponent(fen)}`)
       .then((result) => {
         if (!cancelled && currentFen.current === fen)
@@ -67,7 +82,7 @@ export function CoachPanel({
     return () => {
       cancelled = true;
     };
-  }, [game?.id, fen, exploring]);
+  }, [game?.id, fen, exploring, reviewMode, tab]);
 
   useEffect(() => {
     scroll.current?.scrollTo({
@@ -169,6 +184,8 @@ export function CoachPanel({
                   ...last,
                   content: event === 'done' && content ? content : last.content + content,
                   source: String(data.source || last.source || ''),
+                  fallback_reason:
+                    typeof data.fallback_reason === 'string' ? data.fallback_reason : last.fallback_reason,
                 },
               ];
             });
@@ -234,186 +251,239 @@ export function CoachPanel({
   const moveOffset = game?.initial_fen.split(' ')[1] === 'b' ? 1 : 0;
   const firstMove = Number(game?.initial_fen.split(' ')[5] || 1);
   return (
-    <section className="coach-panel panel" aria-label={t('coach')}>
-      <div className="panel-tabs">
-        <button onClick={() => setTab('coach')} className={tab === 'coach' ? 'selected' : ''}>
-          {t('coach')}
+    <section className="coach-panel panel" aria-label={t(reviewMode ? 'analyze' : 'coach')}>
+      <div
+        className="panel-tabs"
+        role={reviewMode ? 'tablist' : undefined}
+        aria-label={t(reviewMode ? 'analyze' : 'coach')}
+      >
+        {reviewMode && (
+          <button
+            id="review-tab"
+            role="tab"
+            aria-selected={tab === 'review'}
+            aria-controls="workspace-panel"
+            onClick={() => setTab('review')}
+            className={tab === 'review' ? 'selected' : ''}
+          >
+            {t('review')}
+          </button>
+        )}
+        <button
+          id="coach-tab"
+          role={reviewMode ? 'tab' : undefined}
+          aria-selected={reviewMode ? tab === 'coach' : undefined}
+          aria-controls="workspace-panel"
+          onClick={() => setTab('coach')}
+          className={tab === 'coach' ? 'selected' : ''}
+        >
+          {t(reviewMode ? 'chat' : 'coach')}
         </button>
-        <button onClick={() => setTab('moves')} className={tab === 'moves' ? 'selected' : ''}>
+        <button
+          id="moves-tab"
+          role={reviewMode ? 'tab' : undefined}
+          aria-selected={reviewMode ? tab === 'moves' : undefined}
+          aria-controls="workspace-panel"
+          onClick={() => setTab('moves')}
+          className={tab === 'moves' ? 'selected' : ''}
+        >
           {t('moves')}
           {!!game?.moves.length && <span className="move-count">{game.moves.length}</span>}
         </button>
       </div>
-      {tab === 'moves' ? (
-        <div className="moves-panel">
-          <h3>{t('moves')}</h3>
-          {!game?.moves.length ? (
-            <p className="muted">{t('noMoves')}</p>
-          ) : (
-            <div className="move-table">
-              {Array.from({ length: Math.ceil(((game?.moves.length || 0) + moveOffset) / 2) }, (_, i) => (
-                <div className="move-row" key={i}>
-                  <span>{firstMove + i}.</span>
-                  {[0, 1].map((side) => {
-                    const index = i * 2 + side - moveOffset,
-                      m = game?.moves[index];
-                    return (
-                      <button
-                        key={side}
-                        disabled={!m}
-                        className={ply === index + 1 ? 'current' : ''}
-                        onClick={() => onNavigate(index + 1)}
-                      >
-                        {m?.san || '—'}
-                        {m?.feedback?.classification && (
-                          <span className={`move-quality ${m.feedback.classification.toLowerCase()}`} />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="coach-scroll" ref={scroll}>
-            <div className="coach-intro">
-              <span className="round-icon">
-                <MessageCircle size={21} />
-              </span>
-              <p>{t('welcomeText')}</p>
-            </div>
-            {learningText && (
-              <div className="feedback-note">
-                <p>{learningText}</p>
-              </div>
-            )}
-            {guidedText && (
-              <div className="hint-note guided-note">
-                <p>{guidedText}</p>
-              </div>
-            )}
-            {latest && feedbackVisible && !exploring && (
-              <div className={`feedback-note ${cls || ''}`} data-testid="move-feedback">
-                <div>
-                  <Sparkles size={16} />
-                  <strong>
-                    {cls && ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'].includes(cls)
-                      ? t(cls as 'good')
-                      : t('unclassified')}
-                  </strong>
-                </div>
-                <p>{latest.text || latest.explanation || latest.assessment}</p>
-                {preferences.feedback === 'detailed' && latest.takeaway && (
-                  <p className="takeaway">{latest.takeaway}</p>
-                )}
-              </div>
-            )}
-            <div className="coach-actions">
-              <button className="outline-button" onClick={requestHint} disabled={analyzing || busy || hintLevel >= 4}>
-                <Lightbulb size={20} />
-                {hintLevel ? t('nextHint') : t('hint')}
-                {hintLevel > 0 && <small>{hintLevel}/4</small>}
-              </button>
-              <button className="outline-button" onClick={compare} disabled={analyzing}>
-                <ChartNoAxesColumnIncreasing size={20} />
-                {t('compare')}
-              </button>
-            </div>
-            {!hint && !showCandidates && <p className="hint-caption">{t('hintsFirst')}</p>}
-            {analyzing && <Spinner label={t('thinking')} />}
-            {hint && (
-              <div className="hint-note" data-testid="position-hint">
-                <span>
-                  {t('hint')} {hintLevel}/4
-                </span>
-                <p>{hint}</p>
-              </div>
-            )}
-            {showCandidates && analysis?.fen === fen && (
-              <div className="candidate-list">
-                <small className="muted">
-                  {t(fen.split(' ')[1] === 'w' ? 'white' : 'black')} {t('sideToMove')}
-                </small>
-                {!analysis.candidates.length && <p>{t('noCandidates')}</p>}
-                {analysis.candidates.map((c, i) => (
-                  <div className="candidate" key={c.uci}>
-                    <div className="candidate-title">
-                      <span className="candidate-rank">{i + 1}</span>
-                      <strong>{c.san}</strong>
-                      {preferences.show_evaluation && (
-                        <span className="eval-score">{evaluationText(c.cp, c.mate)}</span>
-                      )}
-                    </div>
-                    <p>{c.explanation || c.idea || `${t('candidatePreview')}: ${c.san}`}</p>
-                    {preferences.show_pv && (
-                      <>
-                        <code>{c.pv?.slice(0, 6).join(' ')}</code>
-                        {c.risk && <p className="candidate-risk">{c.risk}</p>}
-                      </>
-                    )}
-                    {preferences.show_evaluation && i > 0 && c.cp !== null && analysis.candidates[0].cp !== null && (
-                      <small className="muted">Δ {((c.cp - analysis.candidates[0].cp) / 100).toFixed(2)}</small>
-                    )}
-                    <button className="text-button" onClick={() => onPreview(c)}>
-                      {t('candidatePreview')}
-                      <ChevronRight size={14} />
-                    </button>
+      <div
+        id="workspace-panel"
+        className="workspace-panel"
+        role={reviewMode ? 'tabpanel' : undefined}
+        aria-labelledby={`${tab}-tab`}
+      >
+        {tab === 'review' ? (
+          <GameReview
+            game={game}
+            ply={ply}
+            exploring={exploring}
+            onNavigate={onNavigate}
+            onExplore={onExplore}
+            onPreview={onPreview}
+            preferences={preferences}
+          />
+        ) : tab === 'moves' ? (
+          <div className="moves-panel">
+            <h3>{t('moves')}</h3>
+            {!game?.moves.length ? (
+              <p className="muted">{t('noMoves')}</p>
+            ) : (
+              <div className="move-table">
+                {Array.from({ length: Math.ceil(((game?.moves.length || 0) + moveOffset) / 2) }, (_, i) => (
+                  <div className="move-row" key={i}>
+                    <span>{firstMove + i}.</span>
+                    {[0, 1].map((side) => {
+                      const index = i * 2 + side - moveOffset,
+                        m = game?.moves[index];
+                      return (
+                        <button
+                          key={side}
+                          disabled={!m}
+                          className={ply === index + 1 ? 'current' : ''}
+                          onClick={() => onNavigate(index + 1)}
+                        >
+                          {m?.san || '—'}
+                          {m?.feedback?.classification && (
+                            <span className={`move-quality ${m.feedback.classification.toLowerCase()}`} />
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
             )}
-            {messages.map((m, i) => (
-              <div className={`chat-message ${m.role}`} key={i}>
-                <span>
-                  {m.role === 'user' ? t('you') : t('coach')}
-                  {m.fen !== fen && <small> · {t('viewing')}</small>}
-                </span>
-                <p>
-                  {m.content ||
-                    (busy && i === messages.length - 1 ? <Spinner label={t('coachThinking')} /> : t('offline'))}
-                </p>
-                {m.source && m.source !== 'analyzing' && m.role === 'assistant' && (
-                  <small className="message-source">
-                    {['llm', 'local_llm_verified'].includes(m.source) ? t('sourceLlm') : t('sourceFallback')}
-                  </small>
-                )}
-              </div>
-            ))}
-            <ErrorNotice error={error} onDismiss={() => setError(null)} />
           </div>
-          <form
-            className="chat-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send();
-            }}
-          >
-            <label className="sr-only" htmlFor="coach-question">
-              {t('ask')}
-            </label>
-            <textarea
-              id="coach-question"
-              placeholder={t('ask')}
-              value={question}
-              rows={1}
-              maxLength={2000}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void send();
-                }
+        ) : (
+          <>
+            <div className="coach-scroll" ref={scroll}>
+              <div className="coach-intro">
+                <span className="round-icon">
+                  <MessageCircle size={21} />
+                </span>
+                <p>{t('welcomeText')}</p>
+              </div>
+              {learningText && (
+                <div className="feedback-note">
+                  <p>{learningText}</p>
+                </div>
+              )}
+              {guidedText && (
+                <div className="hint-note guided-note">
+                  <p>{guidedText}</p>
+                </div>
+              )}
+              {latest && feedbackVisible && !exploring && (
+                <div className={`feedback-note ${cls || ''}`} data-testid="move-feedback">
+                  <div>
+                    <Sparkles size={16} />
+                    <strong>
+                      {cls && ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder'].includes(cls)
+                        ? t(cls as 'good')
+                        : t('unclassified')}
+                    </strong>
+                  </div>
+                  <p>{latest.text || latest.explanation || latest.assessment}</p>
+                  {preferences.feedback === 'detailed' && latest.takeaway && (
+                    <p className="takeaway">{latest.takeaway}</p>
+                  )}
+                </div>
+              )}
+              <div className="coach-actions">
+                <button className="outline-button" onClick={requestHint} disabled={analyzing || busy || hintLevel >= 4}>
+                  <Lightbulb size={20} />
+                  {hintLevel ? t('nextHint') : t('hint')}
+                  {hintLevel > 0 && <small>{hintLevel}/4</small>}
+                </button>
+                <button className="outline-button" onClick={compare} disabled={analyzing}>
+                  <ChartNoAxesColumnIncreasing size={20} />
+                  {t('compare')}
+                </button>
+              </div>
+              {!hint && !showCandidates && <p className="hint-caption">{t('hintsFirst')}</p>}
+              {analyzing && <Spinner label={t('thinking')} />}
+              {hint && (
+                <div className="hint-note" data-testid="position-hint">
+                  <span>
+                    {t('hint')} {hintLevel}/4
+                  </span>
+                  <p>{hint}</p>
+                </div>
+              )}
+              {showCandidates && analysis?.fen === fen && (
+                <div className="candidate-list">
+                  <small className="muted">
+                    {t(fen.split(' ')[1] === 'w' ? 'white' : 'black')} {t('sideToMove')}
+                  </small>
+                  {!analysis.candidates.length && <p>{t('noCandidates')}</p>}
+                  {analysis.candidates.map((c, i) => (
+                    <div className="candidate" key={c.uci}>
+                      <div className="candidate-title">
+                        <span className="candidate-rank">{i + 1}</span>
+                        <strong>{c.san}</strong>
+                        {preferences.show_evaluation && (
+                          <span className="eval-score">{evaluationText(c.cp, c.mate)}</span>
+                        )}
+                      </div>
+                      <p>{c.explanation || c.idea || `${t('candidatePreview')}: ${c.san}`}</p>
+                      {preferences.show_pv && (
+                        <>
+                          <code>{c.pv?.slice(0, 6).join(' ')}</code>
+                          {c.risk && <p className="candidate-risk">{c.risk}</p>}
+                        </>
+                      )}
+                      {preferences.show_evaluation && i > 0 && c.cp !== null && analysis.candidates[0].cp !== null && (
+                        <small className="muted">Δ {((c.cp - analysis.candidates[0].cp) / 100).toFixed(2)}</small>
+                      )}
+                      <button className="text-button" onClick={() => onPreview(c)}>
+                        {t('candidatePreview')}
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {messages.map((m, i) => (
+                <div className={`chat-message ${m.role}`} key={i}>
+                  <span>
+                    {m.role === 'user' ? t('you') : t('coach')}
+                    {m.fen !== fen && <small> · {t('viewing')}</small>}
+                  </span>
+                  <p>
+                    {m.content ||
+                      (busy && i === messages.length - 1 ? <Spinner label={t('coachThinking')} /> : t('offline'))}
+                  </p>
+                  {m.source && m.source !== 'analyzing' && m.role === 'assistant' && (
+                    <small className="message-source">
+                      {['llm', 'local_llm_verified'].includes(m.source) ? t('sourceLlm') : t('sourceFallback')}
+                      {m.fallback_reason && ` · ${t(fallbackLabels[m.fallback_reason] || 'coachInvalidResponse')}`}
+                    </small>
+                  )}
+                </div>
+              ))}
+              <ErrorNotice error={error} onDismiss={() => setError(null)} />
+            </div>
+            <form
+              className="chat-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void send();
               }}
-            />
-            <button type="submit" className="primary-button" aria-label={t('send')} disabled={!question.trim() || busy}>
-              <Send size={19} />
-            </button>
-          </form>
-        </>
-      )}
+            >
+              <label className="sr-only" htmlFor="coach-question">
+                {t('ask')}
+              </label>
+              <textarea
+                id="coach-question"
+                placeholder={t('ask')}
+                value={question}
+                rows={1}
+                maxLength={2000}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    void send();
+                  }
+                }}
+              />
+              <button
+                type="submit"
+                className="primary-button"
+                aria-label={t('send')}
+                disabled={!question.trim() || busy}
+              >
+                <Send size={19} />
+              </button>
+            </form>
+          </>
+        )}
+      </div>
     </section>
   );
 }

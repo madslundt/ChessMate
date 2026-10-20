@@ -24,15 +24,16 @@ import { Board, evaluationText } from './Board';
 import { PositionScore } from './PositionScore';
 import { CoachPanel } from './CoachPanel';
 import { committable } from './exploration';
-import { ErrorNotice, Modal, PageHeading, Spinner } from './components';
-import { GameSetup, ImportModal } from './GameDialogs';
+import { ErrorNotice, PageHeading, Spinner } from './components';
+import { GameLoading, GameSetup, ImportModal } from './GameDialogs';
 import { useGameWorkspace, type WorkspaceProps } from './useGameWorkspace';
-import type { Game, Review } from './types';
+import { PostGameSummary } from './GameReview';
+import type { Game } from './types';
+import { Link } from './navigation';
 export function GameWorkspace(props: WorkspaceProps) {
   const { preferences, analysisMode, selectGame } = props;
   const {
     t,
-    client,
     setup,
     setSetup,
     importing,
@@ -45,12 +46,11 @@ export function GameWorkspace(props: WorkspaceProps) {
     error,
     setError,
     busy,
-    review,
-    setReview,
     setAnalysis,
     notice,
     setNotice,
     game,
+    gameQuery,
     at,
     fen,
     boardFen,
@@ -77,9 +77,20 @@ export function GameWorkspace(props: WorkspaceProps) {
     status,
     chess,
   } = useGameWorkspace(props);
+  if (props.activeGameId && !game) {
+    return (
+      <GameLoading
+        analysisMode={analysisMode}
+        preferences={preferences}
+        pending={gameQuery.isPending}
+        error={gameQuery.error}
+        onRetry={() => void gameQuery.refetch()}
+      />
+    );
+  }
   return (
     <>
-      <PageHeading title={t(analysisMode ? 'analyze' : 'play')} subtitle={analysisMode ? t('importHelp') : undefined}>
+      <PageHeading title={t(analysisMode ? 'analyze' : 'play')} subtitle={analysisMode ? t('analysisHelp') : undefined}>
         <button className="primary-button" onClick={() => setSetup(true)}>
           <Plus size={19} />
           {t('newGame')}
@@ -114,6 +125,7 @@ export function GameWorkspace(props: WorkspaceProps) {
           </button>
         </div>
       )}
+      {game && finished && !analysisMode && <PostGameSummary game={game} />}
       <div className="game-layout">
         <section className={`board-panel panel ${explore ? 'is-exploring' : ''}`}>
           <div className="player-row">
@@ -121,7 +133,9 @@ export function GameWorkspace(props: WorkspaceProps) {
               <Bot size={23} />
             </span>
             <div>
-              <strong>{analysisMode ? t('freeAnalysis') : t('stockfish')}</strong>
+              <strong>
+                {analysisMode ? t(game && game.mode !== 'analysis' ? 'match' : 'freeAnalysis') : t('stockfish')}
+              </strong>
               <small>
                 {analysisMode
                   ? t('status')
@@ -323,11 +337,13 @@ export function GameWorkspace(props: WorkspaceProps) {
           )}
         </section>
         <CoachPanel
-          key={game?.id || 'new'}
+          key={`${analysisMode}-${game?.id || 'new'}`}
+          reviewMode={analysisMode}
+          onExplore={enterExplore}
           fen={fen}
           game={game}
           preferences={preferences}
-          exploring={!!explore || !atLatest}
+          exploring={!!explore}
           onPreview={preview}
           ply={at}
           onNavigate={(p) => {
@@ -344,7 +360,7 @@ export function GameWorkspace(props: WorkspaceProps) {
           {game ? t('saved') : t('privacy')}
         </span>
         <div>
-          {game && game.mode !== 'computer' && (
+          {game && game.mode !== 'computer' && !(analysisMode && game.mode !== 'analysis') && (
             <button
               className="text-button"
               disabled={busy || !game.moves.length || !!explore}
@@ -364,18 +380,11 @@ export function GameWorkspace(props: WorkspaceProps) {
                 <Download size={15} />
                 {t('export')}
               </button>
-              <button
-                className="text-button"
-                onClick={async () => {
-                  try {
-                    setReview(await api<Review>(`/games/${game.id}/review`));
-                  } catch (e) {
-                    setError(e);
-                  }
-                }}
-              >
-                {t('review')}
-              </button>
+              {!analysisMode && !finished && (
+                <Link className="text-button" href={`/analyze/${encodeURIComponent(game.id)}`}>
+                  {t('analyzeGame')}
+                </Link>
+              )}
             </>
           )}
         </div>
@@ -412,61 +421,6 @@ export function GameWorkspace(props: WorkspaceProps) {
             setImporting(false);
           }}
         />
-      )}
-      {review && (
-        <Modal title={t('review')} onClose={() => setReview(null)}>
-          <p>{review.summary}</p>
-          {!!review.topics?.length && (
-            <p>
-              {t('recommended')}: {review.topics.map((topic) => t(topic as 'opening')).join(' · ')}
-            </p>
-          )}
-          {['positives', 'mistakes'].map((group) => (
-            <div key={group} className="review-group">
-              <h3>{group === 'mistakes' ? t('mistakes') : t('good')}</h3>
-              {(
-                (review[group] || []) as {
-                  ply: number;
-                  san: string;
-                  feedback: { text: string };
-                }[]
-              ).map((item) => (
-                <button
-                  key={item.ply}
-                  className="review-move"
-                  onClick={() => {
-                    setPly(item.ply - 1);
-                    setExplore(null);
-                    setReview(null);
-                  }}
-                >
-                  <strong>
-                    {Math.ceil(item.ply / 2)}. {item.san}
-                  </strong>
-                  <span>{item.feedback?.text}</span>
-                  <ChevronRight size={17} />
-                </button>
-              ))}
-            </div>
-          ))}
-          {game && (
-            <button
-              className="primary-button"
-              onClick={async () => {
-                try {
-                  const result = await api<{ count: number; message: string }>(`/games/${game.id}/exercises`, {});
-                  setNotice(`${t('createdExercises')} (${result.count})`);
-                  client.invalidateQueries({ queryKey: ['exercises'] });
-                  setReview(null);
-                } catch (e) {
-                  setError(e);
-                }
-              }}
-            >
-              {t('createExercises')}
-            </button>
-          )}
-        </Modal>
       )}
     </>
   );

@@ -136,7 +136,7 @@ test("complete game, coach, exploration, training and resume flow", async ({
     .first()
     .click();
   await expect(page.locator(".move-table")).toContainText("e4");
-  await page.getByRole("button", { name: "Game history", exact: true }).click();
+  await page.getByRole("link", { name: "Game history", exact: true }).click();
   await page.locator(".history-row").first().click();
   await expect(
     page.getByText("Automatically saved", { exact: true }),
@@ -148,7 +148,7 @@ test("complete game, coach, exploration, training and resume flow", async ({
       ).json()
     ).moves,
   ).toHaveLength(2);
-  await page.getByRole("button", { name: "Learn", exact: true }).click();
+  await page.getByRole("link", { name: "Learn", exact: true }).click();
   await page.getByRole("tab", { name: "Forks", exact: true }).click();
   await page
     .locator(".lesson-row")
@@ -162,9 +162,9 @@ test("complete game, coach, exploration, training and resume flow", async ({
   await expect(
     page.getByRole("heading", { name: "Nicely spotted." }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Progress", exact: true }).click();
+  await page.getByRole("link", { name: "Progress", exact: true }).click();
   await expect(page.locator(".progress-stats")).toContainText("100%");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page
     .getByLabel("Interface language", { exact: true })
     .selectOption("da");
@@ -175,7 +175,7 @@ test("complete game, coach, exploration, training and resume flow", async ({
   await expect(
     page.getByText("Indstillinger gemt", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Lær", exact: true }).click();
+  await page.getByRole("link", { name: "Lær", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Lær" })).toBeVisible();
   expect(
     await page.evaluate(
@@ -264,16 +264,16 @@ test("black gameplay, dark preferences, repertoire practice and saved coaching",
     page.locator(".chat-message.assistant .message-source"),
   ).toBeVisible();
   await expect(page.locator(".chat-message.assistant p")).toContainText("e5");
-  await page.getByRole("button", { name: "Game history", exact: true }).click();
+  await page.getByRole("link", { name: "Game history", exact: true }).click();
   await page.locator(".history-row").first().click();
   await expect(page.locator(".chat-message.assistant p")).toContainText("e5");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.getByLabel("Theme", { exact: true }).selectOption("dark");
   await page
     .getByRole("button", { name: "Save preferences", exact: true })
     .click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.getByRole("button", { name: "Learn", exact: true }).click();
+  await page.getByRole("link", { name: "Learn", exact: true }).click();
   await page.getByRole("tab", { name: "Opening", exact: true }).click();
   await page.getByRole("button", { name: "Add a line", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Add an opening line" });

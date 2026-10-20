@@ -153,6 +153,32 @@ def test_previous_move_explanation_and_persisted_conversation(signed):
     assert empty["messages"] == []
 
 
+def test_coach_reviews_assessed_moves_up_to_selected_position(signed, monkeypatch):
+    from src.backend.engine import engine_service
+    monkeypatch.setattr(engine_service, "play", lambda board, difficulty: chess.Move.from_uci("e7e5"))
+    game = start(signed)
+    url = f"/api/games/{game['id']}"
+    first = signed.post(url + "/moves", json={"move": "e4", "revision": 0}).json()
+    signed.post(url + "/computer", json={"revision": 1})
+    game = signed.post(url + "/moves", json={"move": "Nf3", "revision": 2}).json()
+    for fen, count, last_move in [(game["fen"], 2, "Nf3"), (first["fen"], 1, "e4")]:
+        response = signed.post("/api/coach", json={"fen": fen, "game_id": game["id"], "revision": 3,
+                                                     "question": "How has my moves been so far?"})
+        assert response.status_code == 200
+        assert f"Reviewed {count} of your moves" in response.text
+        assert f"earlier decision {last_move}" in response.text
+        assert '"fallback_reason": "not_configured"' in response.text
+        if count == 1:
+            assert "Nf3" not in response.text
+
+
+def test_coach_review_without_assessments_is_explicit(signed):
+    game = start(signed)
+    response = signed.post("/api/coach", json={"fen": game["fen"], "game_id": game["id"], "revision": 0,
+                                                 "question": "How have my moves been so far?"})
+    assert "no assessed moves" in response.text
+
+
 def test_analysis_uses_coaching_language_and_feedback_filters_recursively(signed):
     signed.patch("/api/settings", json={"coach_language": "da"})
     response = signed.post("/api/analysis", json={"fen": chess.STARTING_FEN, "time_ms": 50})

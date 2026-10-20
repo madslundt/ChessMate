@@ -171,6 +171,20 @@ def test_daily_session_prioritizes_due_reviews_and_future_mastery_is_delayed(tra
     assert all(x["category"] == "endgame" for x in only_endgames["exercises"])
 
 
+def test_session_link_restores_queue_without_exposing_private_data(training_client):
+    client, _ = training_client
+    session = client.post("/api/training/sessions", json={"kind": "forks", "minutes": 5}).json()
+    response = client.get(f"/api/training/sessions/{session['id']}")
+    assert response.status_code == 200
+    assert response.json() == session
+    assert all("solution" not in item and "evidence" not in item and "hints" not in item
+               for item in response.json()["exercises"])
+    assert client.get("/api/training/sessions/missing").status_code == 404
+    other = client.post("/api/profiles", json={"name": "another learner"}).json()
+    client.headers["X-Profile-ID"] = other["id"]
+    assert client.get(f"/api/training/sessions/{session['id']}").status_code == 404
+
+
 def test_multimove_exercise_replies_and_keeps_partial_attempt_unfinished(training_client):
     client, sessions = training_client
     with sessions() as db:

@@ -18,13 +18,9 @@ import { Repertoire } from './Repertoire';
 import { Empty, ErrorNotice, PageHeading, Spinner } from './components';
 import { useT, type TranslationKey } from './i18n';
 import type { Attempt, Exercise, Preferences } from './types';
-const categories = ['forks', 'pins', 'skewers', 'opening', 'middlegame', 'endgame'] as const;
-export function Learn({ preferences }: { preferences: Preferences }) {
+import { categories, learnPath, Link, navigate, type Route } from './navigation';
+export function Learn({ preferences, route }: { preferences: Preferences; route: Route }) {
   const t = useT(),
-    [category, setCategory] = useState('all'),
-    [exercise, setExercise] = useState<Exercise | null>(null),
-    [queue, setQueue] = useState<Exercise[]>([]),
-    [sessionId, setSessionId] = useState<string | null>(null),
     [error, setError] = useState<unknown>(null),
     [pending, setPending] = useState(false),
     [completed, setCompleted] = useState(false);
@@ -32,15 +28,30 @@ export function Learn({ preferences }: { preferences: Preferences }) {
     queryKey: ['exercises', preferences.language],
     queryFn: () => api<Exercise[]>('/exercises'),
   });
+  const { category, exerciseId, sessionId } = route;
+  const exerciseQuery = useQuery({
+    queryKey: ['exercise', exerciseId, preferences.language],
+    queryFn: () => api<Exercise>(`/exercises/${exerciseId}`),
+    enabled: !!exerciseId,
+    retry: false,
+  });
+  const sessionQuery = useQuery({
+    queryKey: ['training-session', sessionId, preferences.language],
+    queryFn: () => api<{ id: string; exercises: Exercise[] }>(`/training/sessions/${sessionId}`),
+    enabled: !!sessionId,
+    retry: false,
+  });
+  const exercise = exerciseQuery.data;
   const filtered = exercises.data?.filter((x) => category === 'all' || x.category === category) || [];
   async function practice(kind: string, minutes: number) {
     setPending(true);
     setError(null);
     try {
-      const session = await api<{ id: string; exercises: Exercise[] }>('/training/sessions', { kind, minutes });
-      setSessionId(session.id);
-      setQueue(session.exercises.slice(1));
-      setExercise(session.exercises[0] || null);
+      const session = await api<{ id: string; exercises: Exercise[] }>('/training/sessions', {
+        kind,
+        minutes,
+      });
+      if (session.exercises[0]) navigate(learnPath(category, session.exercises[0].id, session.id));
       setCompleted(!session.exercises.length);
     } catch (e) {
       setError(e);
@@ -48,33 +59,48 @@ export function Learn({ preferences }: { preferences: Preferences }) {
       setPending(false);
     }
   }
-  if (exercise)
+  if (exerciseId) {
+    const loading = exerciseQuery.isPending || (!!sessionId && sessionQuery.isPending);
+    const loadError = exerciseQuery.error || sessionQuery.error;
     return (
-      <ExercisePlayer
-        key={exercise.id}
-        exercise={exercise}
-        preferences={preferences}
-        onBack={() => {
-          setExercise(null);
-          setQueue([]);
-          setSessionId(null);
-        }}
-        session={!!sessionId}
-        onNext={() => {
-          if (queue.length) {
-            setExercise(queue[0]);
-            setQueue(queue.slice(1));
-          } else if (sessionId) {
-            setExercise(null);
-            setSessionId(null);
-            setCompleted(true);
-          } else {
-            const index = filtered.findIndex((x) => x.id === exercise.id);
-            setExercise(filtered[(index + 1) % filtered.length] || null);
-          }
-        }}
-      />
+      <>
+        <Link className="text-button back-button" href={learnPath(category)}>
+          <ArrowLeft size={17} />
+          {t('backLessons')}
+        </Link>
+        {loading ? (
+          <Spinner label={t('thinking')} />
+        ) : loadError ? (
+          <ErrorNotice error={loadError} />
+        ) : (
+          exercise && (
+            <ExercisePlayer
+              key={exercise.id}
+              exercise={exercise}
+              preferences={preferences}
+              session={!!sessionId}
+              onNext={() => {
+                if (sessionId) {
+                  const items = sessionQuery.data?.exercises || [];
+                  const index = items.findIndex((item) => item.id === exercise.id);
+                  const next = items[index + 1];
+                  if (next) navigate(learnPath(category, next.id, sessionId));
+                  else {
+                    setCompleted(true);
+                    navigate(learnPath(category));
+                  }
+                } else {
+                  const index = filtered.findIndex((item) => item.id === exercise.id);
+                  const next = filtered[(index + 1) % filtered.length];
+                  navigate(learnPath(category, next?.id));
+                }
+              }}
+            />
+          )
+        )}
+      </>
     );
+  }
   return (
     <>
       <PageHeading title={t('learn')} />
@@ -120,15 +146,15 @@ export function Learn({ preferences }: { preferences: Preferences }) {
       </div>
       <div className="category-tabs" role="tablist" aria-label={t('topics')}>
         {['all', ...categories].map((c) => (
-          <button
+          <Link
             role="tab"
             aria-selected={category === c}
             key={c}
-            onClick={() => setCategory(c)}
+            href={learnPath(c)}
             className={category === c ? 'selected' : ''}
           >
             {t(c as TranslationKey)}
-          </button>
+          </Link>
         ))}
       </div>
       {category !== 'all' && (
@@ -144,15 +170,7 @@ export function Learn({ preferences }: { preferences: Preferences }) {
       ) : (
         <div className="lesson-list">
           {filtered.map((item, i) => (
-            <button
-              className="lesson-row"
-              key={item.id}
-              onClick={() => {
-                setExercise(item);
-                setSessionId(null);
-                setQueue([]);
-              }}
-            >
+            <Link className="lesson-row" key={item.id} href={learnPath(category, item.id)}>
               <span className="lesson-number">{String(i + 1).padStart(2, '0')}</span>
               <span className="lesson-icon">
                 <BookOpen size={21} />
@@ -167,7 +185,7 @@ export function Learn({ preferences }: { preferences: Preferences }) {
               </span>
               {item.source_game_id && <small>{t('match')}</small>}
               <ChevronRight size={20} />
-            </button>
+            </Link>
           ))}
         </div>
       )}
@@ -175,9 +193,7 @@ export function Learn({ preferences }: { preferences: Preferences }) {
         <Repertoire
           preferences={preferences}
           onPractice={(s) => {
-            setSessionId(s.id);
-            setQueue(s.exercises.slice(1));
-            setExercise(s.exercises[0] || null);
+            if (s.exercises[0]) navigate(learnPath(category, s.exercises[0].id, s.id));
           }}
         />
       )}
@@ -187,13 +203,11 @@ export function Learn({ preferences }: { preferences: Preferences }) {
 function ExercisePlayer({
   exercise,
   preferences,
-  onBack,
   onNext,
   session,
 }: {
   exercise: Exercise;
   preferences: Preferences;
-  onBack: () => void;
   onNext: () => void;
   session: boolean;
 }) {
@@ -253,10 +267,6 @@ function ExercisePlayer({
   };
   return (
     <>
-      <button className="text-button back-button" onClick={onBack}>
-        <ArrowLeft size={17} />
-        {t('backLessons')}
-      </button>
       <PageHeading
         title={exercise.title}
         subtitle={`${t(exercise.category as TranslationKey)} · ${session ? t('practiceQueue') : Number(exercise.difficulty) > 1 ? t('intermediate') : t('beginner')}`}

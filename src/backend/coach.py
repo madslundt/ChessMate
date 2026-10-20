@@ -1,6 +1,7 @@
 """Evidence-only coaching. The model chooses verified statements, never invents moves."""
 import asyncio
 import json
+import ssl
 import threading
 from typing import Literal
 
@@ -13,6 +14,28 @@ from .coach_facts import PIECES_DA, build_statements, learner_color, fallback_ke
 from .config import settings, llm_tls_context
 from .engine import EngineUnavailable, engine_service
 from .llm_settings import Connection
+
+
+class ModelUnavailable(RuntimeError):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def model_failure_reason(error: Exception) -> str:
+    if isinstance(error, ModelUnavailable): return error.reason
+    if isinstance(error, (httpx.TimeoutException, asyncio.TimeoutError)): return "timeout"
+    if isinstance(error, httpx.HTTPStatusError):
+        return "authentication" if error.response.status_code in (401, 403) else "server_error"
+    if isinstance(error, httpx.ConnectError):
+        cause, seen = error, set()
+        while cause is not None and id(cause) not in seen:
+            seen.add(id(cause))
+            if isinstance(cause, ssl.SSLCertVerificationError): return "tls_certificate"
+            cause = cause.__cause__ or cause.__context__
+        return "connection"
+    if isinstance(error, httpx.HTTPError): return "connection"
+    return "invalid_response"
 
 
 class Selection(BaseModel):
@@ -92,9 +115,9 @@ class CoachService:
 
     async def _model_selection(self, context: dict, statements: dict, llm: Connection | None = None) -> Selection:
         llm = llm or Connection(settings.llm_base_url, settings.llm_model, settings.llm_api_key)
-        if not llm.base_url or not llm.model: raise RuntimeError("Local model is not configured")
+        if not llm.base_url or not llm.model: raise ModelUnavailable("not_configured")
         acquired = await asyncio.to_thread(self._slots.acquire, True, 2)
-        if not acquired: raise RuntimeError("Local model is busy")
+        if not acquired: raise ModelUnavailable("busy")
         try:
             instruction = (
                 "You are a patient chess teacher. All chess facts are supplied by a verified engine and legal board tools. "
@@ -107,6 +130,8 @@ class CoachService:
             payload = {"model": llm.model, "messages": [{"role": "system", "content": instruction},
                 {"role": "user", "content": json.dumps({"verified_context": context, "statement_catalog": statements})}],
                 "temperature": settings.llm_temperature, "max_tokens": settings.llm_max_tokens, "stream": True}
+            if settings.llm_reasoning_effort:
+                payload["reasoning_effort"] = settings.llm_reasoning_effort
             url = llm.base_url
             if not url.endswith("/v1"): url += "/v1"
             headers = {"Authorization": f"Bearer {llm.api_key}"} if llm.api_key else {}
@@ -132,21 +157,24 @@ class CoachService:
         finally:
             self._slots.release()
 
-    async def respond(self, board: chess.Board, context: dict, language: str, llm: Connection | None = None) -> tuple[str, str]:
+    async def respond(self, board: chess.Board, context: dict, language: str, llm: Connection | None = None) -> tuple[str, str, str | None]:
         preferences = context["preferences"]
         reveal = reveal_requested(context) or not preferences.get("hide_best_moves", True)
         statements = self.statements(board, context, language, reveal)
         keys = fallback_keys(context, statements, reveal)
         source = "deterministic"
+        fallback_reason = None
         try:
             # Total deadline also bounds servers that send tiny deltas indefinitely.
             request = self._model_selection(context, statements, llm) if llm is not None else self._model_selection(context, statements)
             selection = await asyncio.wait_for(request, timeout=settings.llm_timeout + 2)
             self.validate_selection(selection, statements, board, context, reveal)
             keys = list(dict.fromkeys(selection.fact_ids))
+            if "review" in statements:
+                keys = list(dict.fromkeys([key for key in ("review", "previous_assessment") if key in statements] + keys))
             source = "local_llm_verified"
-        except (RuntimeError, ValueError, httpx.HTTPError, asyncio.TimeoutError, KeyError, TypeError):
-            pass
+        except (RuntimeError, ValueError, httpx.HTTPError, asyncio.TimeoutError, KeyError, TypeError) as error:
+            fallback_reason = model_failure_reason(error)
         max_words = preferences.get("max_explanation_length", 120)
         selected, count = [], 0
         for key in keys:
@@ -154,7 +182,7 @@ class CoachService:
             if selected and count + len(sentence.split()) > max_words: break
             selected.append(sentence)
             count += len(sentence.split())
-        return " ".join(selected), source
+        return " ".join(selected), source, fallback_reason
 
     def hint(self, board: chess.Board, level: int, language: str = "en", time_ms: int = 250, depth: int | None = None, candidates: int = 3) -> dict:
         analysis = engine_service.analyze(board, candidates=candidates, time_ms=time_ms, depth=depth)
