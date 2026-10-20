@@ -232,6 +232,7 @@ function ExercisePlayer({
     [busy, setBusy] = useState(false),
     [hint, setHint] = useState(''),
     [hintMove, setHintMove] = useState<string | null>(null),
+    [hintSquare, setHintSquare] = useState<string | null>(null),
     [preview, setPreview] = useState<number | null>(null),
     [playing, setPlaying] = useState(false),
     [speed, setSpeed] = useState(preferences.variation_speed_ms || 1000),
@@ -268,6 +269,7 @@ function ExercisePlayer({
         setMoves(r.reply ? [...submitted, r.reply] : submitted);
         setHint('');
         setHintMove(null);
+        setHintSquare(null);
         if (!r.complete) setLevel(0);
       } else {
         setBranchId(null);
@@ -275,6 +277,7 @@ function ExercisePlayer({
         setMoves([]);
         setHint('');
         setHintMove(null);
+        setHintSquare(null);
         setLevel(0);
       }
       client.invalidateQueries({ queryKey: ['progress'] });
@@ -287,7 +290,7 @@ function ExercisePlayer({
   async function requestHint() {
     setBusy(true);
     try {
-      const r = await api<{ text: string; level: number; move?: string }>(`/exercises/${exercise.id}/hint`, {
+      const r = await api<{ text: string; level: number; move?: string; highlight_square?: string }>(`/exercises/${exercise.id}/hint`, {
         level: Math.min(level + 1, 4),
         moves,
         branch_id: branchId,
@@ -295,6 +298,7 @@ function ExercisePlayer({
       setHint(r.text);
       setLevel(r.level);
       setHintMove(r.move || null);
+      setHintSquare(r.highlight_square || null);
       client.invalidateQueries({ queryKey: ['progress'] });
     } catch (e) {
       setError(e);
@@ -331,7 +335,8 @@ function ExercisePlayer({
             orientation={side}
             onMove={(m) => void move(m)}
             lastMove={preview === null ? moves.at(-1) : solution[preview - 1]}
-            highlightedMove={preview === null ? hintMove || undefined : undefined}
+            highlightedMove={preview === null ? hintMove || (hintSquare ? null : undefined) : undefined}
+            targets={preview === null && hintSquare ? [hintSquare] : []}
             arrows={
               preview === null && hintMove
                 ? [
@@ -360,6 +365,8 @@ function ExercisePlayer({
                 setError(null);
                 setHint('');
                 setHintMove(null);
+                setHintSquare(null);
+                setLevel(0);
                 setPreview(null);
                 setPlaying(false);
               }}

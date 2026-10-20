@@ -416,8 +416,11 @@ class CoachService:
         side = ("Hvid" if board.turn else "Sort") if da else ("White" if board.turn else "Black")
         text = (f"{side} i trækket: " if da else f"{side} to move: ") + text
         result = {"fen": board.fen(), "level": level, "text": text, "perspective": "white" if board.turn else "black"}
-        if level >= 3:
+        if level == 1:
+            result["highlight_square"] = chess.square_name(move.from_square)
+        if level >= 2:
             result["highlight_move"] = best["uci"]
+        if level >= 3:
             result["insights"], _ = move_insights(board, best, language)
             if level == 3:
                 result["insights"] = [item for item in result["insights"] if item["claim_type"] in ("legal_move", "board_geometry")]

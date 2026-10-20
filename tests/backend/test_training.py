@@ -74,6 +74,12 @@ def test_solution_hints_progress_and_spaced_repetition(training_client):
         response = client.post(f"/api/exercises/{item['id']}/hint", json={"level": level})
         assert response.status_code == 200
         assert response.json()["text"] == item["hints"][level - 1]
+        if level == 1:
+            move = parse_move(chess.Board(item["fen"]), item["solution"][0])
+            assert response.json()["highlight_square"] == chess.square_name(move.from_square)
+            assert "move" not in response.json()
+        else:
+            assert response.json()["move"] == item["solution"][0]
     response = client.post(f"/api/exercises/{item['id']}/attempt", json={"moves": item["solution"], "hint_level": 0})
     assert response.status_code == 200, response.text
     assert response.json()["correct"] and response.json()["complete"]
@@ -344,6 +350,9 @@ def test_continuation_hint_uses_reached_position_and_never_reveals_an_early_move
     prefix = item["solution"][:2]
     first = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 1, "moves": prefix}).json()
     assert "move" not in first
+    assert first["highlight_square"] == item["solution"][2][:2]
+    second = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 2, "moves": prefix}).json()
+    assert second["move"] == item["solution"][2]
     revealed = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 4, "moves": prefix}).json()
     assert revealed["move"] == item["solution"][2]
     invalid = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 1, "moves": ["a1a8"]})

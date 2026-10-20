@@ -31,8 +31,18 @@ test('learning keeps continuation hints and visual playback synchronized, and sa
         .getByRole('button', { name: level === 1 ? 'Give me a hint' : 'Next hint', exact: true })
         .click();
       const hint = await (await hintResponse).json();
-      if (level < 4) expect(hint.move).toBeUndefined();
-      else expect(hint.move).toBe('b5c7');
+      if (level === 1) {
+        expect(hint.highlight_square).toBe('b5');
+        await expect(page.locator('[data-square="b5"] .board-square')).toHaveCSS(
+          'box-shadow', 'rgb(213, 148, 49) 0px 0px 0px 4px inset',
+        );
+        await expect(page.locator('path[marker-end*="b5-c7"]')).toHaveCount(0);
+      } else {
+        expect(hint.move).toBe('b5c7');
+        await expect(page.locator('path[marker-end*="b5-c7"]')).toHaveCount(1);
+        await expect(page.locator('[data-square="b5"] .board-square')).toHaveCSS('box-shadow', 'none');
+      }
+      if (level === 1) expect(hint.move).toBeUndefined();
     }
     await move(page, 'b5', 'c7');
     await expect(page.getByText('Solved with help or after a retry', { exact: true })).toBeVisible();

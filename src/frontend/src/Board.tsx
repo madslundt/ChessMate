@@ -67,11 +67,12 @@ export function Board({ fen, preferences, orientation, onMove, disabled = false,
       .find((p) => p?.type === 'k' && p.color === chess.turn());
     if (king)
       styles[king.square] = {
-        background: 'radial-gradient(ellipse, #c65355 0%, #c6535580 55%, transparent 85%)',
+        ...styles[king.square],
+        backgroundImage: 'radial-gradient(ellipse, #c65355 0%, #c6535580 55%, transparent 85%)',
       };
   }
   if (activeSquare) {
-    styles[activeSquare] = { backgroundColor: '#d1d87c' };
+    styles[activeSquare] = { ...styles[activeSquare], backgroundColor: '#d1d87c' };
     if (!held) {
       for (const m of legalMoves)
         styles[m.to] = {

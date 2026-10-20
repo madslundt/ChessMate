@@ -51,7 +51,7 @@ export function HintCard({
         {t("hint")} {hintLevel}/4
       </span>
       <p>{hint}</p>
-      {hintVisual && preferences.explanation_mode !== "text" && (
+      {hintLevel >= 3 && hintVisual && preferences.explanation_mode !== "text" && (
         <VisualExplanation
           coaching={hintVisual}
           onVisual={onVisual}

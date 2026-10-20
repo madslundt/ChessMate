@@ -143,8 +143,14 @@ def protected_hint_failures(hints: list[dict], fen: str) -> list[str]:
         failures.append("Protected hint capture is incomplete")
     for hint in hints:
         if hint.get("fen") != fen: failures.append("Protected hint belongs to another position")
-        if any(hint.get(key) for key in ("highlight_move", "candidates", "pv_uci", "insights", "variations", "arrows", "move", "squares")):
+        if any(hint.get(key) for key in ("candidates", "pv_uci", "insights", "variations", "arrows", "move", "squares")) or (hint.get("level") == 1 and hint.get("highlight_move")):
             failures.append(f"Protected hint {hint.get('level')} exposes move evidence")
+        if hint.get("level") == 2 and hint.get("highlight_move"):
+            try:
+                if chess.Move.from_uci(hint["highlight_move"]) not in chess.Board(fen).legal_moves:
+                    raise ValueError("Illegal hint move")
+            except ValueError:
+                failures.append("Second hint exposes an illegal move arrow")
     return failures
 
 

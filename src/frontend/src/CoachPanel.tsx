@@ -66,6 +66,8 @@ export function CoachPanel({
   const latest = feedbackMove?.feedback;
   const feedbackBase = feedbackMove?.before_fen || (feedbackPly === 0 ? game?.initial_fen : game?.moves[feedbackPly - 1]?.fen);
   useEffect(() => {
+    const hintGuide = hintVisual?.insights?.find((item) => item.id === 'hint-guide' && item.fen === fen);
+    if (hintGuide) { onVisual(hintGuide); return; }
     if (exploring || preferences.visual_arrows === 'on_request' || preferences.explanation_mode === 'text' || preferences.coaching_mode === 'independent') return;
     const currentMessage = messages.at(-1);
     const feedbackInsights = preferences.hide_best_moves && (latest?.actor === 'opponent' || feedbackMove?.actor === 'computer') ? undefined : latest?.insights;

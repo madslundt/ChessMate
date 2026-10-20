@@ -73,6 +73,7 @@ class HintView(View):
     fen: str
     level: int
     text: str
+    highlight_square: str | None = None
     highlight_move: str | None = None
 
 

@@ -214,7 +214,7 @@ export function GameWorkspace(props: WorkspaceProps) {
               lastMove={lastMove}
               highlightedMove={highlightedMove}
               arrows={arrows}
-              targets={preferences.highlight_pieces === false ? [] : visibleVisual?.squares}
+              targets={preferences.highlight_pieces === false && visibleVisual?.id !== 'hint-guide' ? [] : visibleVisual?.squares}
               onSelectSquare={squareAnswer ? (square) => { setSquareAnswer(null); squareAnswer(square); } : undefined}
               onMove={play}
               disabled={!squareAnswer && (busy || (!explore && (!atLatest || (!analysisMode && !!game && (!isPlayerTurn || finished)))))}
@@ -377,7 +377,11 @@ export function GameWorkspace(props: WorkspaceProps) {
           fen={fen}
           game={game}
           preferences={playMode === 'independent' ? { ...preferences, coaching_mode: 'independent', feedback: 'none' } : preferences}
-          onVisual={(insight) => { if (insight.fen !== fen) retryPosition(insight.fen); setVisual(insight); }}
+          onVisual={(insight) => {
+            if (insight.id === 'hint-guide') { setHoveredMove(null); setPinnedMove(null); }
+            if (insight.fen !== fen) retryPosition(insight.fen);
+            setVisual(insight);
+          }}
           onRetry={async (base, rootPly) => {
             if (!game || rootPly === undefined) { retryPosition(base, rootPly); return; }
             try {

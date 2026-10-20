@@ -99,6 +99,14 @@ def test_benchmark_checks_score_perspective_actual_overlays_and_hidden_hint_move
     assert "Visual insight belongs to an unsupported position" in visual_failures(visuals, analysis, root)
     hints = [{"fen": root, "level": level, "text": "Look for forcing moves."} for level in (1, 2)]
     assert not protected_hint_failures(hints, root)
+    hints[1]["highlight_move"] = "e2e4"
+    assert not protected_hint_failures(hints, root)
+    hints[1]["highlight_move"] = "e2e5"
+    assert protected_hint_failures(hints, root)
+    hints[1]["highlight_move"] = "e2e4"
+    hints[0]["highlight_move"] = "e2e4"
+    assert protected_hint_failures(hints, root)
+    del hints[0]["highlight_move"]
     hints[0]["insights"] = [{"arrows": [{"from": "e2", "to": "e4"}]}]
     assert protected_hint_failures(hints, root)
 

@@ -192,6 +192,7 @@ export function useCoachSession({
           hint?: string;
           fen?: string;
           highlight_move?: string;
+          highlight_square?: string;
         } & VisualCoaching
       >(
         "/hint",
@@ -207,7 +208,19 @@ export function useCoachSession({
       if (!hintController.signal.aborted && currentFen.current === requested) {
         setHint(result.text || result.hint || "");
         setHintMove(level >= 3 ? result.highlight_move || null : null);
-        setHintVisual(level >= 3 ? result : null);
+        setHintVisual(level >= 3 ? result : (level === 1 ? result.highlight_square : result.highlight_move) ? {
+          insights: [{
+            id: "hint-guide",
+            fen: requested,
+            text: result.text || result.hint || "",
+            squares: level === 1 && result.highlight_square ? [result.highlight_square] : [],
+            arrows: level === 2 && result.highlight_move ? [{
+              from: result.highlight_move.slice(0, 2),
+              to: result.highlight_move.slice(2, 4),
+              color: "#378466",
+            }] : [],
+          }],
+        } : null);
         setHintLevel(level);
         if (level === 4) await compare();
       }

@@ -149,7 +149,7 @@ test("visual variation can be stepped, reversed, paused and returned without sav
   expect(errors).toEqual([]);
 });
 
-test("early hints cannot leak visual metadata and calculation rejects illegal lines", async ({
+test("hints highlight the source then draw a move arrow without leaking extra visual metadata and calculation rejects illegal lines", async ({
   page,
 }) => {
   await setup(page);
@@ -157,6 +157,7 @@ test("early hints cannot leak visual metadata and calculation rejects illegal li
     route.fulfill({
       json: {
         text: "Check the center.",
+        highlight_square: route.request().postDataJSON().level === 1 ? "e2" : undefined,
         highlight_move: "e2e4",
         insights: [
           {
@@ -181,6 +182,14 @@ test("early hints cannot leak visual metadata and calculation rejects illegal li
     page.getByTestId("position-hint").getByRole("button"),
   ).toHaveCount(0);
   await expect(page.locator('path[marker-end*="e2-e4"]')).toHaveCount(0);
+  const source = page.locator('[data-square="e2"] .board-square');
+  const destination = page.locator('[data-square="e4"] .board-square');
+  await expect(source).toHaveCSS('box-shadow', 'rgb(213, 148, 49) 0px 0px 0px 4px inset');
+  await expect(destination).toHaveCSS('box-shadow', 'none');
+  await page.getByRole('button', { name: /Next hint/ }).click();
+  await expect(destination).toHaveCSS('box-shadow', 'none');
+  await expect(source).toHaveCSS('box-shadow', 'none');
+  await expect(page.locator('path[marker-end*="e2-e4"]')).toHaveCount(1);
   await page
     .getByRole("button", { name: "Calculate before moving", exact: true })
     .click();
@@ -214,6 +223,45 @@ test("early hints cannot leak visual metadata and calculation rejects illegal li
   await expect(page.locator(".calculation-practice")).toContainText(
     "Your line is legal.",
   );
+});
+
+test('hints highlight a checked king and clear after moving', async ({ page }, info) => {
+  const headers = await setup(page);
+  await page.request.patch('/api/settings', { headers, data: { highlight_pieces: false, explanation_mode: 'text' } });
+  const created = await page.request.post('/api/games', { headers, data: {
+    fen: '6k1/8/8/8/8/8/4r3/4K3 w - - 0 1', player_color: 'white',
+  } });
+  expect(created.status()).toBe(201);
+  const game = await created.json();
+  await page.goto(`/play/${game.id}`);
+  await page.route('**/api/hint', (route) => route.fulfill({ json: {
+    fen: game.fen,
+    text: route.request().postDataJSON().level === 1 ? 'Focus on your king.' : 'Move the king to e2.',
+    highlight_square: route.request().postDataJSON().level === 1 ? 'e1' : undefined,
+    highlight_move: 'e1e2',
+  } }));
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') errors.push(message.text());
+  });
+  await expect(page).toHaveTitle(/Chessmate/);
+  await expect(page).toHaveURL(`/play/${game.id}`);
+  await expect(page.getByTestId('chessboard')).toBeVisible();
+  await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Give me a hint', exact: true }).click();
+  await expect(page.locator('[data-square="e1"] .board-square')).toHaveCSS('box-shadow', 'rgb(213, 148, 49) 0px 0px 0px 4px inset');
+  await page.getByTestId('chessboard').screenshot({ path: `/tmp/chessmate-hint-source-${info.project.name}.png` });
+  await page.getByRole('button', { name: /Next hint/ }).click();
+  await expect(page.locator('path[marker-end*="e1-e2"]')).toHaveCount(1);
+  await expect(page.locator('[data-square="e1"] .board-square')).toHaveCSS('box-shadow', 'none');
+  await page.getByTestId('chessboard').screenshot({ path: `/tmp/chessmate-hint-destination-${info.project.name}.png` });
+  await page.locator('[data-square="e1"]').click();
+  await page.locator('[data-square="e2"]').click();
+  await expect(page.getByTestId('position-hint')).toHaveCount(0);
+  await expect(page.locator('path[marker-end*="e1-e2"]')).toHaveCount(0);
+  await expect(page.locator('[data-square="e2"] .board-square')).toHaveCSS('box-shadow', 'none');
+  expect(errors).toEqual([]);
 });
 
 test("real calculation identifies a failed tactic and full-game analysis assesses imported moves", async ({

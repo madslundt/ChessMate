@@ -249,7 +249,9 @@ def exercise_hint(exercise_id: str, body: HintRequest, db: DB, user: Player) -> 
     db.add(HintEvent(user_id=user.id, exercise_id=exercise_id, level=level))
     db.commit()
     result = {"text": hints[level - 1], "level": level}
-    if level == 4:
+    if level == 1:
+        result["highlight_square"] = chess.square_name(next_move.from_square)
+    if level >= 2:
         result["move"] = next_move.uci()
         result["fen"] = board.fen()
     return result
