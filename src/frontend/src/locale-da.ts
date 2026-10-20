@@ -424,4 +424,7 @@ export const da: typeof en = {
     "Ryd både endpoint og model for at slå LLM fra. Verificeret regelbaseret træning er tilgængelig, hvis modellen ikke svarer.",
   llmSave: "Gem forbindelse",
   llmSaved: "Forbindelse gemt",
+  llmTest: "Test LLM",
+  llmTesting: "Tester…",
+  llmTestFailed: "Test af modellen mislykkedes.",
 };

@@ -60,18 +60,21 @@
 .speech-model-status .text-button {
   flex: 0 0 auto;
 }
-.speech-stt-test {
+.speech-provider-test {
   display: grid;
   justify-items: start;
   gap: 7px;
   margin-top: 5px;
 }
-.speech-stt-test p,
-.speech-stt-test small {
+.speech-provider-test p,
+.speech-provider-test small {
   margin: 0;
 }
-.speech-stt-test-error {
+.speech-provider-test-error {
   color: var(--danger, #b42318);
+}
+.speech-provider-test audio {
+  max-width: 100%;
 }
 .speech-security {
   margin-top: 16px;

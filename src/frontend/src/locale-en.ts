@@ -420,4 +420,7 @@ export const en = {
     "Clear both endpoint and model to disable the LLM. Verified deterministic coaching remains available if the model is unavailable.",
   llmSave: "Save connection",
   llmSaved: "Connection saved",
+  llmTest: "Test LLM",
+  llmTesting: "Testing…",
+  llmTestFailed: "The model test failed.",
 };

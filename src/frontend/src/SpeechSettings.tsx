@@ -4,7 +4,7 @@ import { Check, Mic, RefreshCw, Save, Square } from 'lucide-react';
 import { api, ApiError } from './api';
 import { LocaleContext, useT, type TranslationKey } from './i18n';
 import { ErrorNotice, Field, Spinner, Toggle } from './components';
-import { transcribeAudio } from './speechClient';
+import { synthesizeSpeech, transcribeAudio } from './speechClient';
 import './styles/speech-settings.css';
 
 /** Settings returned by GET /settings/speech. API keys are represented only by presence flags. */
@@ -128,6 +128,9 @@ export function SpeechSettings() {
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState('');
   const [testError, setTestError] = useState('');
+  const [ttsTestBusy, setTtsTestBusy] = useState(false);
+  const [ttsTestUrl, setTtsTestUrl] = useState('');
+  const [ttsTestError, setTtsTestError] = useState('');
   const testRecorder = useRef<MediaRecorder | null>(null);
   const testStream = useRef<MediaStream | null>(null);
   const testChunks = useRef<Blob[]>([]);
@@ -145,11 +148,38 @@ export function SpeechSettings() {
     testStream.current?.getTracks().forEach((track) => track.stop());
   }, []);
 
-  const sttConfigSaved = !!query.data && !!draft && draft.stt_mode === 'server'
+  useEffect(() => () => {
+    if (ttsTestUrl) URL.revokeObjectURL(ttsTestUrl);
+  }, [ttsTestUrl]);
+
+  const sttConfigSaved = !!query.data && !!draft && query.data.stt_mode === 'server' && draft.stt_mode === 'server'
     && draft.stt_base_url === query.data.stt_base_url
     && draft.stt_model === query.data.stt_model
     && draft.verify_tls === query.data.verify_tls
     && !sttKey && !clearSttKey;
+  const ttsConfigSaved = !!query.data && !!draft && query.data.tts_mode === 'server' && draft.tts_mode === 'server'
+    && draft.tts_base_url === query.data.tts_base_url
+    && draft.tts_model === query.data.tts_model
+    && draft.tts_voice === query.data.tts_voice
+    && draft.verify_tls === query.data.verify_tls
+    && !ttsKey && !clearTtsKey;
+
+  async function testTts() {
+    setTtsTestBusy(true);
+    setTtsTestError('');
+    setTtsTestUrl('');
+    try {
+      const audio = await synthesizeSpeech(
+        da ? 'Dette er en test af talesyntesen.' : 'This is a test of speech synthesis.',
+        da ? 'da' : 'en',
+      );
+      setTtsTestUrl(URL.createObjectURL(audio));
+    } catch (error) {
+      setTtsTestError(error instanceof Error ? error.message : label('TTS test failed.', 'TTS-test mislykkedes.'));
+    } finally {
+      setTtsTestBusy(false);
+    }
+  }
 
   async function startSttTest() {
     setTestError('');
@@ -324,7 +354,7 @@ export function SpeechSettings() {
                           }}
                         />
                       )}
-                      <div className="speech-stt-test">
+                      <div className="speech-provider-test">
                         <button
                           className="text-button"
                           type="button"
@@ -340,7 +370,7 @@ export function SpeechSettings() {
                         </button>
                         {!sttConfigSaved && <small>{label('Save the STT settings before testing.', 'Gem STT-indstillingerne før testen.')}</small>}
                         {testResult && <p role="status">{label('Recognized:', 'Genkendt:')} {testResult}</p>}
-                        {testError && <p role="alert" className="speech-stt-test-error">{testError}</p>}
+                        {testError && <p role="alert" className="speech-provider-test-error">{testError}</p>}
                       </div>
                     </>
                   )}
@@ -419,6 +449,15 @@ export function SpeechSettings() {
                           }}
                         />
                       )}
+                      <div className="speech-provider-test">
+                        <button className="text-button" type="button" disabled={!ttsConfigSaved || ttsTestBusy} onClick={() => void testTts()}>
+                          {ttsTestBusy ? <Spinner /> : <Mic size={15} />}
+                          {ttsTestBusy ? label('Testing…', 'Tester…') : label('Test TTS', 'Test TTS')}
+                        </button>
+                        {!ttsConfigSaved && <small>{label('Save the TTS settings before testing.', 'Gem TTS-indstillingerne før testen.')}</small>}
+                        {ttsTestUrl && <audio controls src={ttsTestUrl}>{label('Audio playback is not supported in this browser.', 'Lydafspilning understøttes ikke i denne browser.')}</audio>}
+                        {ttsTestError && <p role="alert" className="speech-provider-test-error">{ttsTestError}</p>}
+                      </div>
                     </>
                   )}
                 </section>
@@ -444,7 +483,7 @@ export function SpeechSettings() {
               )}
               <div className="speech-settings-actions">
                 {saved && <span role="status"><Check size={16} />{label('Saved', 'Gemt')}</span>}
-                <button className="primary-button" type="submit" disabled={busy || testRecording || testBusy}>
+                <button className="primary-button" type="submit" disabled={busy || testRecording || testBusy || ttsTestBusy}>
                   {busy ? <Spinner /> : <Save size={17} />}
                   {label('Save speech settings', 'Gem taleindstillinger')}
                 </button>

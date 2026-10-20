@@ -170,6 +170,58 @@ async def list_models(data: dict, user: User = Depends(current_user), db: Sessio
         raise HTTPException(502, {"code": code, "message": message}) from None
 
 
+@router.post("/test")
+async def test_connection(data: dict, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    try:
+        draft = ConnectionInput.model_validate(data)
+    except ValidationError as exc:
+        raise HTTPException(422, exc.errors(include_input=False, include_context=False)) from None
+    if not draft.base_url or not draft.model:
+        raise HTTPException(409, "Configure an endpoint and model before testing")
+    previous = connection_for(db, user)
+    key = connection_key(draft, previous)
+    verify_tls = connection_verifies_tls(draft, previous)
+    base_url = draft.base_url if draft.base_url.endswith("/v1") else draft.base_url + "/v1"
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    payload = {
+        "model": draft.model,
+        "messages": [{"role": "user", "content": "Reply with the single word OK."}],
+        "max_tokens": 16,
+        "stream": False,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20, verify=llm_tls_context() if verify_tls else False) as client:
+            response = await client.post(base_url + "/chat/completions", headers=headers, json=payload)
+            response.raise_for_status()
+        if len(response.content) > 1_000_000:
+            raise ValueError("response too large")
+        result = response.json()
+        choices = result.get("choices") if isinstance(result, dict) else None
+        message = choices[0].get("message") if isinstance(choices, list) and choices and isinstance(choices[0], dict) else None
+        reply = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(reply, str) or not reply.strip():
+            raise ValueError("invalid completion response")
+        return {"reply": reply.strip()[:1000]}
+    except httpx.TimeoutException:
+        raise HTTPException(504, "The model server timed out") from None
+    except httpx.ConnectError as error:
+        cause, seen = error, set()
+        while cause is not None and id(cause) not in seen:
+            seen.add(id(cause))
+            if isinstance(cause, ssl.SSLCertVerificationError):
+                raise HTTPException(502, "The backend does not trust the model server certificate") from None
+            cause = cause.__cause__ or cause.__context__
+        raise HTTPException(502, "Could not connect to the model server") from None
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code in (401, 403):
+            message = "The model server rejected authentication"
+        else:
+            message = "The model server returned an error"
+        raise HTTPException(502, message) from None
+    except (httpx.HTTPError, ValueError, json.JSONDecodeError):
+        raise HTTPException(502, "The model server returned an invalid response") from None
+
+
 @router.get("")
 def get_connection(user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     return public_connection(connection_for(db, user))

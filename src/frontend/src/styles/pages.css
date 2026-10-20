@@ -249,6 +249,18 @@
   font-size: 12px;
   color: var(--accent);
 }
+.llm-test {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  margin-top: 12px;
+}
+.llm-test p {
+  margin: 0;
+}
+.llm-test-error {
+  color: var(--danger, #b42318);
+}
 .llm-model-status {
   display: flex;
   flex-wrap: wrap;

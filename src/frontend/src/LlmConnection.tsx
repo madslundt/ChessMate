@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, RefreshCw, Save } from 'lucide-react';
+import { Check, RefreshCw, Save, Zap } from 'lucide-react';
 import { api, ApiError } from './api';
 import { useT, type TranslationKey } from './i18n';
 import { ErrorNotice, Field, Spinner, Toggle } from './components';
@@ -41,6 +41,9 @@ export function LlmConnection() {
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<TranslationKey | null>(null);
   const [refreshModels, setRefreshModels] = useState(0);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testReply, setTestReply] = useState('');
+  const [testError, setTestError] = useState('');
   const endpoint = draft?.base_url.trim().replace(/\/+$/, '') || '';
   const verifyTls = draft?.verify_tls ?? true;
   useEffect(() => {
@@ -85,6 +88,30 @@ export function LlmConnection() {
   function change(values: Partial<Connection>) {
     setDraft((current) => (current ? { ...current, ...values } : current));
     setSaved(false);
+  }
+  async function testLlm() {
+    if (!draft) return;
+    setTestBusy(true);
+    setTestReply('');
+    setTestError('');
+    try {
+      const result = await api<{ reply: string }>(
+        '/settings/llm/test',
+        {
+          base_url: draft.base_url,
+          model: draft.model,
+          ...(apiKey ? { api_key: apiKey } : {}),
+          clear_api_key: clearKey,
+          verify_tls: verifyTls,
+        },
+        'POST',
+      );
+      setTestReply(result.reply);
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : t('llmTestFailed'));
+    } finally {
+      setTestBusy(false);
+    }
   }
   return (
     <form
@@ -241,6 +268,14 @@ export function LlmConnection() {
                   <p>{t('llmEndpointKeyHelp')}</p>
                 )}
                 <p>{t('llmFallbackHelp')}</p>
+                <div className="llm-test">
+                  <button className="text-button" type="button" disabled={busy || testBusy || !endpoint || !draft.model.trim()} onClick={() => void testLlm()}>
+                    {testBusy ? <Spinner /> : <Zap size={15} />}
+                    {testBusy ? t('llmTesting') : t('llmTest')}
+                  </button>
+                  {testReply && <p role="status">{testReply}</p>}
+                  {testError && <p role="alert" className="llm-test-error">{testError}</p>}
+                </div>
                 <div className="llm-actions">
                   {saved && (
                     <span role="status">
@@ -248,7 +283,7 @@ export function LlmConnection() {
                       {t('llmSaved')}
                     </span>
                   )}
-                  <button className="primary-button" type="submit" disabled={!draft || busy}>
+                  <button className="primary-button" type="submit" disabled={!draft || busy || testBusy}>
                     {busy ? <Spinner /> : <Save size={17} />}
                     {t('llmSave')}
                   </button>
