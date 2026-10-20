@@ -40,11 +40,11 @@ export function App() {
   const profiles = useQuery({ queryKey: ['profiles'], queryFn: () => api<User[]>('/profiles') });
   const user = profiles.data?.find((profile) => profile.id === profileId) ?? null;
   useEffect(() => {
-    if (!profiles.isPending && profileId && !profiles.data?.some((profile) => profile.id === profileId)) {
+    if (profiles.isSuccess && profileId && !profiles.data.some((profile) => profile.id === profileId)) {
       setProfileId(null);
       localStorage.removeItem(PROFILE_KEY);
     }
-  }, [profiles.data, profiles.isPending, profileId]);
+  }, [profiles.data, profiles.isSuccess, profileId]);
   useEffect(() => {
     if (user?.preferences) setPreferences({ ...defaults, ...user.preferences });
   }, [user]);

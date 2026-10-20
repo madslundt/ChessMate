@@ -2,19 +2,19 @@ import { mkdir } from 'node:fs/promises';
 import { test, expect } from '../../src/frontend/node_modules/@playwright/test/index.mjs';
 import type { Page, Route } from '../../src/frontend/node_modules/@playwright/test/index.mjs';
 
-async function register(page: Page) {
+async function createProfile(page: Page) {
   await page.emulateMedia({ colorScheme: 'light' });
   await page.goto('/');
   await page
-    .getByLabel('Username', { exact: true })
+    .getByLabel('New profile', { exact: true })
     .fill(`auto_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`);
-  await page.getByLabel('Password', { exact: true }).fill('automatic-play-test-only');
-  const registration = page.waitForResponse(
-    (response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/auth/register',
+  const creation = page.waitForResponse(
+    (response) => response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/profiles',
   );
-  await page.getByRole('button', { name: 'Create account', exact: true }).click();
-  const registered = await registration;
-  expect(registered.status(), await registered.text()).toBe(201);
+  await page.getByRole('button', { name: 'Create profile', exact: true }).click();
+  const created = await creation;
+  expect(created.status(), await created.text()).toBe(201);
+  const headers = { 'X-Profile-ID': (await created.json()).id as string };
   await expect(page.getByRole('button', { name: 'New game', exact: true })).toBeVisible();
   await expect(
     page.getByRole('heading', {
@@ -22,11 +22,17 @@ async function register(page: Page) {
       exact: true,
     }),
   ).toBeVisible();
-  const settings = await page.request.get('/api/settings');
+  const settings = await page.request.get('/api/settings', { headers });
   expect(settings.status()).toBe(200);
   const preferences = await settings.json();
   expect(preferences.auto_computer, 'New players should receive automatic computer replies by default').toBe(true);
+  return headers;
 }
+
+test.afterEach(async ({ page }) => {
+  const profileId = await page.evaluate(() => localStorage.getItem('chessmate.profile'));
+  if (profileId) await page.request.delete(`/api/profiles/${profileId}`);
+});
 
 async function start(page: Page, color: 'white' | 'black') {
   await page.getByRole('button', { name: 'New game', exact: true }).click();
@@ -50,7 +56,10 @@ async function move(page: Page, from: string, to: string) {
 }
 
 async function gameState(page: Page, id: string) {
-  const response = await page.request.get(`/api/games/${id}`);
+  const profileId = await page.evaluate(() => localStorage.getItem('chessmate.profile'));
+  const response = await page.request.get(`/api/games/${id}`, {
+    headers: { 'X-Profile-ID': profileId! },
+  });
   expect(response.status()).toBe(200);
   return response.json();
 }
@@ -70,7 +79,7 @@ test('automatic white replies once, respects Explore/history/analysis, and retri
   page,
 }) => {
   const count = trackComputerCalls(page);
-  await register(page);
+  await createProfile(page);
   const game = await start(page, 'white');
   expect(count(game.id)).toBe(0);
   await move(page, 'e2', 'e4');
@@ -136,7 +145,7 @@ test('black receives one opening and one reply, cancels a pending navigation tim
   page,
 }, info) => {
   const count = trackComputerCalls(page);
-  await register(page);
+  const headers = await createProfile(page);
   const game = await start(page, 'black');
   // Leaving immediately must cancel a scheduled opening move until the game is resumed.
   await page.getByRole('button', { name: 'Game history', exact: true }).click();
@@ -166,7 +175,9 @@ test('black receives one opening and one reply, cancels a pending navigation tim
   await expect(darkToggle).toBeVisible();
   await darkToggle.click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-  await expect.poll(async () => (await (await page.request.get('/api/settings')).json()).theme).toBe('dark');
+  await expect
+    .poll(async () => (await (await page.request.get('/api/settings', { headers })).json()).theme)
+    .toBe('dark');
   const dark = await page.locator('html').evaluate((element) => getComputedStyle(element).backgroundColor);
   expect(dark).not.toBe(light);
   await mkdir('/tmp/chessmate-deployment', { recursive: true });
@@ -181,7 +192,9 @@ test('black receives one opening and one reply, cancels a pending navigation tim
   expect((await gameState(page, game.id)).moves).toHaveLength(3);
   await page.getByRole('button', { name: 'Switch to light theme', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-  await expect.poll(async () => (await (await page.request.get('/api/settings')).json()).theme).toBe('light');
+  await expect
+    .poll(async () => (await (await page.request.get('/api/settings', { headers })).json()).theme)
+    .toBe('light');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   expect(count(game.id)).toBe(2);

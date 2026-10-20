@@ -49,8 +49,9 @@ def verify_protocol(base_url: str) -> list[dict]:
                 raise RuntimeError("Isolated backend did not become healthy")
             time.sleep(.25)
         assert health.json()["llm"] == "configured" and health.json()["engine"] == "available"
-        registration = client.post("/api/auth/register", json={"name": "protocol-check", "password": secrets.token_urlsafe(24)})
-        assert registration.status_code == 201, registration.text
+        profile = client.post("/api/profiles", json={"name": "protocol-check"})
+        assert profile.status_code == 201, profile.text
+        client.headers["X-Profile-ID"] = profile.json()["id"]
         results = []
         for kind, expected in (("valid", "local_llm_verified"), ("malformed", "deterministic"),
                                ("illegal", "deterministic"), ("timeout", "deterministic")):

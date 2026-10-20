@@ -27,18 +27,21 @@ async function board(
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path !== '/api/profiles') expect(route.request().headers()['x-profile-id']).toBe('movement-profile');
     let body: unknown = [];
-    if (path === '/api/auth/me') {
-      body = {
-        id: 'movement-user',
-        name: 'Movement test',
-        preferences: {
-          ...defaults,
-          coaching_mode: 'independent',
-          auto_computer: false,
-          show_legal_moves: showLegalMoves,
+    if (path === '/api/profiles') {
+      body = [
+        {
+          id: 'movement-profile',
+          name: 'Movement test',
+          preferences: {
+            ...defaults,
+            coaching_mode: 'independent',
+            auto_computer: false,
+            show_legal_moves: showLegalMoves,
+          },
         },
-      };
+      ];
     } else if (path === '/api/games/movement-test/moves') {
       const { move, revision } = route.request().postDataJSON();
       requests.push(move);
@@ -46,7 +49,10 @@ async function board(
       const outcome = await response;
       if (outcome === 'offline') return route.abort('failed');
       if (outcome !== 'success') {
-        return route.fulfill({ status: outcome === 'conflict' ? 409 : 500, json: { detail: 'Move was not saved' } });
+        return route.fulfill({
+          status: outcome === 'conflict' ? 409 : 500,
+          json: { detail: 'Move was not saved' },
+        });
       }
       const chess = new Chess(game.fen);
       const played = chess.move(move);
@@ -61,7 +67,10 @@ async function board(
     else if (path.endsWith('/conversation')) body = { messages: [] };
     await route.fulfill({ json: body });
   });
-  await page.addInitScript(() => localStorage.setItem('chessmate.game', 'movement-test'));
+  await page.addInitScript(() => {
+    localStorage.setItem('chessmate.profile', 'movement-profile');
+    localStorage.setItem('chessmate.game', 'movement-test');
+  });
   await page.goto('/');
   await expect(page.getByTestId('chessboard')).toHaveAttribute(
     'aria-label',
@@ -107,8 +116,15 @@ test('legal destinations glow immediately while holding and dragging a piece', a
   const glow = page.locator('.board-square--legal-glow');
   const touch = info.project.name !== 'desktop';
   const session = touch ? await page.context().newCDPSession(page) : null;
-  const point = { x: source.x + source.width / 2, y: source.y + source.height / 2 };
-  if (session) await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+  const point = {
+    x: source.x + source.width / 2,
+    y: source.y + source.height / 2,
+  };
+  if (session)
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [point],
+    });
   else {
     await page.mouse.move(point.x, point.y);
     await page.mouse.down();
@@ -136,8 +152,14 @@ test('legal destinations glow immediately while holding and dragging a piece', a
       await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 12 });
     }
     await expect(glow).toHaveCount(2);
-    await page.getByTestId('chessboard').screenshot({ path: `/tmp/chessmate-held-moves-${info.project.name}.png` });
-    if (session) await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.getByTestId('chessboard').screenshot({
+      path: `/tmp/chessmate-held-moves-${info.project.name}.png`,
+    });
+    if (session)
+      await session.send('Input.dispatchTouchEvent', {
+        type: 'touchEnd',
+        touchPoints: [],
+      });
     else await page.mouse.up();
     await expect(glow).toHaveCount(0);
     await expect(piece(page, 'e4', 'wP')).toHaveCount(1);
@@ -223,9 +245,27 @@ for (const scenario of [
     type: 'bP',
     color: 'black' as const,
   },
-  { name: 'castling', fen: 'r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1', from: 'e1', to: 'g1', type: 'wK' },
-  { name: 'en passant', fen: '7k/8/8/3pP3/8/8/8/7K w - d6 0 1', from: 'e5', to: 'd6', type: 'wP' },
-  { name: 'underpromotion', fen: '7k/P7/8/8/8/8/8/7K w - - 0 1', from: 'a7', to: 'a8', type: 'wN' },
+  {
+    name: 'castling',
+    fen: 'r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1',
+    from: 'e1',
+    to: 'g1',
+    type: 'wK',
+  },
+  {
+    name: 'en passant',
+    fen: '7k/8/8/3pP3/8/8/8/7K w - d6 0 1',
+    from: 'e5',
+    to: 'd6',
+    type: 'wP',
+  },
+  {
+    name: 'underpromotion',
+    fen: '7k/P7/8/8/8/8/8/7K w - - 0 1',
+    from: 'a7',
+    to: 'a8',
+    type: 'wN',
+  },
 ]) {
   test(`player ${scenario.name} appears while saving`, async ({ page }) => {
     const state = await board(page, scenario.fen, scenario.color);
@@ -237,7 +277,9 @@ for (const scenario of [
         expect(state.requests).toEqual([]);
         await dialog.getByRole('button', { name: 'n', exact: true }).click();
       }
-      await expect(piece(page, scenario.to, scenario.type)).toHaveCount(1, { timeout: 350 });
+      await expect(piece(page, scenario.to, scenario.type)).toHaveCount(1, {
+        timeout: 350,
+      });
       if (scenario.name === 'castling') await expect(piece(page, 'f1', 'wR')).toHaveCount(1);
       if (scenario.name === 'en passant') await expect(piece(page, 'd5', 'bP')).toHaveCount(0);
     } finally {

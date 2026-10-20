@@ -2,7 +2,8 @@
 """Verify deployed Chessmate through nginx, then verify durability after a stack restart.
 
 Run seed, restart the Compose services without deleting volumes, then run resume.
-The private state file contains only disposable test-account credentials and cookies.
+The state file contains only disposable profile IDs and verification snapshots.
+Resume removes its disposable profiles by default after verification.
 """
 from __future__ import annotations
 
@@ -27,10 +28,28 @@ class Verification:
         split = urlsplit(self.base_url)
         self.origin = f"{split.scheme}://{split.netloc}"
         self.checks: list[str] = []
+        self.created_profile_ids: list[str] = []
 
-    def client(self, cookies: dict | None = None) -> httpx.Client:
-        return httpx.Client(base_url=self.base_url, cookies=cookies, timeout=90,
-                            headers={"Origin": self.origin}, follow_redirects=False)
+    def client(self, profile_id: str | None = None) -> httpx.Client:
+        headers = {"Origin": self.origin}
+        if profile_id:
+            headers["X-Profile-ID"] = profile_id
+        return httpx.Client(base_url=self.base_url, timeout=90, headers=headers, follow_redirects=False)
+
+    def create_profile(self, client: httpx.Client, name: str) -> dict:
+        profile = self.request(client, "POST", "/profiles", 201, json={"name": name}).json()
+        self.created_profile_ids.append(profile["id"])
+        client.headers["X-Profile-ID"] = profile["id"]
+        return profile
+
+    def cleanup(self, profile_ids: list[str]) -> None:
+        with self.client() as client:
+            for profile_id in profile_ids:
+                response = client.delete("/api/profiles/" + profile_id)
+                assert response.status_code in (204, 404), f"Could not remove disposable profile {profile_id}: {response.status_code}"
+            remaining = {profile["id"] for profile in self.request(client, "GET", "/profiles").json()}
+            assert not remaining.intersection(profile_ids), "Disposable verification profiles remain"
+        self.record("disposable verification profiles and their owned data removed")
 
     def request(self, client: httpx.Client, method: str, path: str, expected: int = 200, **kwargs) -> httpx.Response:
         response = client.request(method, "/api" + path, **kwargs)
@@ -43,9 +62,9 @@ class Verification:
 
     def race(self, client: httpx.Client, path: str, bodies: tuple[dict, dict]) -> dict:
         barrier = threading.Barrier(2)
-        cookies = dict(client.cookies)
+        profile_id = client.headers["X-Profile-ID"]
         def post(body):
-            with self.client(cookies) as contender:
+            with self.client(profile_id) as contender:
                 barrier.wait(timeout=10)
                 return contender.post("/api" + path, json=body)
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -75,21 +94,17 @@ class Verification:
 
     def seed(self) -> dict:
         suffix = secrets.token_hex(6)
-        credentials = {"name": f"compose_{suffix}", "password": secrets.token_urlsafe(24)}
         with self.client() as client:
             health = self.request(client, "GET", "/health").json()
             assert health["status"] == "ok" and health["engine"] == "available"
-            self.request(client, "GET", "/games", 401)
-            self.record("nginx HTTP health, Stockfish availability, anonymous access denied")
-            registration = self.request(client, "POST", "/auth/register", 201, json=credentials)
-            user = registration.json()
-            cookie = registration.headers["set-cookie"].lower()
-            assert "httponly" in cookie and "samesite=lax" in cookie
+            self.request(client, "GET", "/games", 400)
+            self.record("nginx HTTP health, Stockfish availability, profile selection required")
+            user = self.create_profile(client, f"compose_{suffix}")
             assert "password" not in user and "password_hash" not in user
-            self.request(client, "POST", "/auth/login", 401, json={**credentials, "password": "incorrect-password"})
+            assert any(profile["id"] == user["id"] for profile in self.request(client, "GET", "/profiles").json())
             self.request(client, "POST", "/games", 403, json={}, headers={"Origin": "https://untrusted.invalid"})
             self.request(client, "POST", "/games", 415, content="{}", headers={"Content-Type": "text/plain"})
-            self.record("opaque HttpOnly sessions, invalid password rejection, proxy-origin and JSON CSRF guards")
+            self.record("password-free profile selection, proxy-origin and JSON CSRF guards")
             preferences = self.request(client, "PATCH", "/settings", json={"theme": "dark", "language": "da", "coach_language": "en",
                 "show_evaluation": True, "show_pv": True, "show_alternatives": True, "hide_best_moves": True,
                 "analysis_time_ms": 100, "auto_computer": False}).json()
@@ -151,33 +166,31 @@ class Verification:
             public_ids = [item["id"] for item in self.request(client, "GET", "/exercises").json()]
             assert len(public_ids) >= 48 and len(public_ids) == len(set(public_ids))
             with self.client() as other:
-                other_credentials = {"name": f"compose_other_{suffix}", "password": secrets.token_urlsafe(24)}
-                other_user = self.request(other, "POST", "/auth/register", 201, json=other_credentials).json()
+                other_user = self.create_profile(other, f"compose_other_{suffix}")
                 assert other_user["id"] != user["id"]
                 for path in (url, url + "/pgn", url + "/review", url + "/conversation"):
                     self.request(other, "GET", path, 404)
                 self.request(other, "POST", "/coach", 404, json={"fen": game["fen"], "game_id": game["id"], "revision": 5, "question": "Explain"})
                 assert self.request(other, "GET", "/games").json() == []
                 assert self.request(other, "GET", "/settings").json()["theme"] == "light"
-                revoked = dict(other.cookies)
-                self.request(other, "POST", "/auth/logout", json={})
-                with self.client(revoked) as replay: self.request(replay, "GET", "/auth/me", 401)
-                self.request(other, "POST", "/auth/login", json=other_credentials)
-            self.record("cross-account game/review/PGN/conversation isolation and revoked-cookie replay rejection")
+                self.request(other, "DELETE", f"/profiles/{other_user['id']}", 204)
+                self.request(other, "GET", "/games", 404)
+                assert all(profile["id"] != other_user["id"] for profile in self.request(other, "GET", "/profiles").json())
+            self.record("cross-profile game/review/PGN/conversation isolation and removed-profile rejection")
             snapshots = [{key: item[key] for key in ("id", "fen", "initial_fen", "revision", "moves", "status", "result")}
                          for item in (game, imported, roundtrip, promotion)]
-            return {"version": 1, "base_url": self.base_url, "credentials": credentials, "cookies": dict(client.cookies),
-                    "user_id": user["id"], "preferences": preferences, "games": snapshots,
+            return {"version": 2, "base_url": self.base_url, "profile_ids": self.created_profile_ids,
+                    "profile_id": user["id"], "preferences": preferences, "games": snapshots,
                     "conversations": [first_chat, {"fen": game["fen"], "messages": final_messages}],
                     "conversation_game_id": game["id"], "review": review, "public_exercise_ids": public_ids,
                     "seed_checks": self.checks, "coaching_source": done["source"]}
 
     def resume(self, saved: dict) -> None:
-        assert saved["version"] == 1 and saved["base_url"] == self.base_url
-        with self.client(saved["cookies"]) as client:
+        assert saved["version"] == 2 and saved["base_url"] == self.base_url
+        with self.client(saved["profile_id"]) as client:
             assert self.request(client, "GET", "/health").json()["status"] == "ok"
-            assert self.request(client, "GET", "/auth/me").json()["id"] == saved["user_id"]
-            self.record("same opaque session cookie remains authenticated after full stack restart")
+            assert any(profile["id"] == saved["profile_id"] for profile in self.request(client, "GET", "/profiles").json())
+            self.record("same persisted profile remains selectable")
             assert self.request(client, "GET", "/settings").json() == saved["preferences"]
             for expected in saved["games"]:
                 actual = self.request(client, "GET", f"/games/{expected['id']}").json()
@@ -193,35 +206,45 @@ class Verification:
             self.record("exact-FEN conversations/review persisted and curriculum seeds remain idempotent")
             analysis = self.request(client, "POST", "/analysis", json={"fen": saved["games"][0]["fen"], "time_ms": 100}).json()
             assert analysis["source"] == "stockfish" and len(analysis["candidates"]) == 3
-            old_cookie = dict(client.cookies)
-            self.request(client, "POST", "/auth/logout", json={})
-            self.request(client, "GET", "/auth/me", 401)
-            with self.client(old_cookie) as replay: self.request(replay, "GET", "/auth/me", 401)
-            assert self.request(client, "POST", "/auth/login", json=saved["credentials"]).json()["id"] == saved["user_id"]
+            client.headers.pop("X-Profile-ID")
+            self.request(client, "GET", url, 400)
+            client.headers["X-Profile-ID"] = saved["profile_id"]
             assert self.request(client, "GET", url).json()["revision"] == saved["games"][0]["revision"]
-            self.record("Stockfish restarts successfully; persisted credentials and session revocation still work")
+            self.record("Stockfish is available; profile reselection restores saved game access")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=("seed", "resume"))
+    parser.add_argument("phase", choices=("seed", "resume", "cleanup"))
     parser.add_argument("--base-url", default="http://localhost:8080")
     parser.add_argument("--state", type=Path, default=Path(__file__).parent / ".http-state.json")
-    parser.add_argument("--keep-state", action="store_true", help="Keep private disposable credentials after resume")
+    parser.add_argument("--keep-state", action="store_true", help="Keep the verification state file after resume")
+    parser.add_argument("--keep-profiles", action="store_true", help="Keep disposable profiles after resume for inspection")
     args = parser.parse_args()
     check = Verification(args.base_url)
     if args.phase == "seed":
         if args.state.exists(): parser.error("State already exists; use resume or choose a new --state path")
-        state = check.seed()
-        args.state.parent.mkdir(parents=True, exist_ok=True)
-        descriptor = os.open(args.state, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w") as output: json.dump(state, output)
+        try:
+            state = check.seed()
+            args.state.parent.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(args.state, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "w") as output: json.dump(state, output)
+        except BaseException:
+            check.cleanup(check.created_profile_ids)
+            raise
         print(f"Seed checks passed. Private restart state saved to {args.state}. Restart the full stack without deleting volumes, then run resume.")
     else:
         saved = json.loads(args.state.read_text())
-        check.resume(saved)
-        if not args.keep_state: args.state.unlink()
-        print("Resume checks passed; disposable test data remains in the database for inspection.")
+        assert saved["version"] == 2 and saved["base_url"] == check.base_url
+        if args.phase == "cleanup":
+            check.cleanup(saved["profile_ids"])
+        else:
+            check.resume(saved)
+            if not args.keep_profiles:
+                check.cleanup(saved["profile_ids"])
+        if not args.keep_state:
+            args.state.unlink()
+        print("Verification and requested cleanup passed.")
     print(json.dumps({"phase": args.phase, "status": "passed", "checks": check.checks}))
 
 
