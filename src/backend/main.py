@@ -82,6 +82,7 @@ async def security_headers(request: Request, call_next):
                     return {"type": "http.request", "body": bytes(body), "more_body": False}
                 return {"type": "http.disconnect"}
 
+            request._body = bytes(body)
             request._receive = replay_body
         elif request.method != "DELETE" and request.headers.get("content-type", "").split(";")[0] != "application/json":
             return JSONResponse({"detail": "Send application/json"}, status_code=415)

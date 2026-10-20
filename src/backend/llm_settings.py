@@ -111,6 +111,51 @@ def connection_verifies_tls(draft: EndpointInput, previous: Connection) -> bool:
     return previous.verify_tls if draft.base_url == previous.base_url else True
 
 
+def _test_reply(payload: object) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+
+    def text_content(value: object) -> str | None:
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, list):
+            parts = [item.get("text", "") for item in value
+                     if isinstance(item, dict) and isinstance(item.get("text"), str)]
+            result = "".join(parts).strip()
+            return result or None
+        return None
+
+    reply = text_content(payload.get("output_text"))
+    if reply:
+        return reply
+    message = payload.get("message")
+    reply = text_content(message.get("content")) if isinstance(message, dict) else None
+    reply = reply or text_content(payload.get("response")) or text_content(payload.get("text"))
+    if reply:
+        return reply
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        choice = choices[0]
+        message = choice.get("message")
+        reply = text_content(message.get("content")) if isinstance(message, dict) else None
+        reply = reply or text_content(choice.get("text"))
+        if reply:
+            return reply
+        # Some reasoning models spend a small test budget on reasoning and return
+        # an otherwise valid completion with no user-facing content.
+        if isinstance(message, dict) or isinstance(choice.get("finish_reason"), str):
+            return "The model responded successfully."
+    output = payload.get("output")
+    if isinstance(output, list):
+        for item in output:
+            if not isinstance(item, dict):
+                continue
+            reply = text_content(item.get("content"))
+            if reply:
+                return reply
+    return None
+
+
 @router.post("/models")
 async def list_models(data: dict, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     try:
@@ -186,7 +231,7 @@ async def test_connection(data: dict, user: User = Depends(current_user), db: Se
     payload = {
         "model": draft.model,
         "messages": [{"role": "user", "content": "Reply with the single word OK."}],
-        "max_tokens": 16,
+        "max_tokens": 128,
         "stream": False,
     }
     try:
@@ -195,13 +240,31 @@ async def test_connection(data: dict, user: User = Depends(current_user), db: Se
             response.raise_for_status()
         if len(response.content) > 1_000_000:
             raise ValueError("response too large")
-        result = response.json()
-        choices = result.get("choices") if isinstance(result, dict) else None
-        message = choices[0].get("message") if isinstance(choices, list) and choices and isinstance(choices[0], dict) else None
-        reply = message.get("content") if isinstance(message, dict) else None
-        if not isinstance(reply, str) or not reply.strip():
+        try:
+            result = response.json()
+            reply = _test_reply(result)
+        except json.JSONDecodeError:
+            # A few compatible servers return a stream even when stream=false.
+            fragments = []
+            for line in response.text.splitlines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    event = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                choices = event.get("choices", []) if isinstance(event, dict) else []
+                if choices and isinstance(choices[0], dict):
+                    delta = choices[0].get("delta", {})
+                    if isinstance(delta, dict) and isinstance(delta.get("content"), str):
+                        fragments.append(delta["content"])
+            reply = "".join(fragments).strip() or None
+        if not reply:
             raise ValueError("invalid completion response")
-        return {"reply": reply.strip()[:1000]}
+        return {"reply": reply[:1000]}
     except httpx.TimeoutException:
         raise HTTPException(504, "The model server timed out") from None
     except httpx.ConnectError as error:
