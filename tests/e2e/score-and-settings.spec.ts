@@ -1,5 +1,7 @@
 import { test, expect } from '../../src/frontend/node_modules/@playwright/test/index.mjs';
 import { mkdir } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 test('material tracks history and exploration; LLM connection saves privately', async ({ page }, info) => {
   const errors: string[] = [];
@@ -48,9 +50,11 @@ test('material tracks history and exploration; LLM connection saves privately', 
   await page.getByRole('button', { name: 'Return to game', exact: true }).click();
   await expect(score).toContainText('White leads in material +1');
 
+  await page.route('**/api/settings/llm/models', (route) => route.fulfill({ json: { models: [] } }));
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByLabel('LLM endpoint', { exact: true }).fill('http://host.docker.internal:8000/v1');
-  await page.getByLabel('Model', { exact: true }).fill('fixture-local-model');
+  await page.getByLabel('Model', { exact: true }).selectOption('custom');
+  await page.getByLabel('Custom model name', { exact: true }).fill('fixture-local-model');
   await page.getByRole('button', { name: 'Save connection', exact: true }).click();
   await expect(page.getByText('Connection saved', { exact: true })).toBeVisible();
   expect((await (await page.request.get('/api/settings/llm')).json()).has_api_key).toBe(false);
@@ -64,7 +68,7 @@ test('material tracks history and exploration; LLM connection saves privately', 
   await page.reload();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByLabel('LLM endpoint', { exact: true })).toHaveValue('http://host.docker.internal:8000/v1');
-  await expect(page.getByLabel('Model', { exact: true })).toHaveValue('fixture-local-model');
+  await expect(page.getByLabel('Custom model name', { exact: true })).toHaveValue('fixture-local-model');
   await expect(page.getByLabel('API key (optional)', { exact: true })).toHaveValue('');
   await expect(page.getByLabel('API key (optional)', { exact: true })).toHaveAttribute(
     'placeholder',
@@ -83,4 +87,70 @@ test('material tracks history and exploration; LLM connection saves privately', 
   expect((await (await page.request.get('/api/settings/llm')).json()).has_api_key).toBe(false);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect(errors).toEqual([]);
+});
+
+test('endpoint model catalog, refresh, and custom model selection persist', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(message.text());
+  });
+  let models = ['local-beta', 'local-alpha', 'local-beta'];
+  const requests: string[] = [];
+  const server = createServer((request, response) => {
+    requests.push(request.url || '');
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify({ data: models.map((id) => ({ id })) }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', resolve));
+  try {
+    const endpoint = `http://${process.env.E2E_MODEL_HOST || 'host.docker.internal'}:${(server.address() as AddressInfo).port}/v1`;
+    const registered = await page.request.post('/api/auth/register', {
+      data: {
+        name: `models_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        password: 'model-catalog-test-only',
+      },
+    });
+    expect(registered.status()).toBe(201);
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await page.getByLabel('LLM endpoint', { exact: true }).fill(endpoint);
+    const selector = page.getByRole('combobox', { name: 'Model', exact: true });
+    await expect(selector.locator('option')).toHaveText(['Select a model', 'local-alpha', 'local-beta', 'Custom']);
+    await selector.selectOption({ label: 'local-beta' });
+    await expect(page.getByLabel('Custom model name', { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Save connection', exact: true }).click();
+    await expect(page.getByText('Connection saved', { exact: true })).toBeVisible();
+    expect((await (await page.request.get('/api/settings/llm')).json()).model).toBe('local-beta');
+    models = ['local-alpha', 'local-beta', 'newly-installed-model'];
+    await page.getByRole('button', { name: 'Refresh models', exact: true }).click();
+    await expect(selector.locator('option')).toHaveText([
+      'Select a model',
+      'local-alpha',
+      'local-beta',
+      'newly-installed-model',
+      'Custom',
+    ]);
+    await expect(selector).toHaveValue('model:local-beta');
+    await mkdir('/tmp/chessmate-model-picker', { recursive: true });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: `/tmp/chessmate-model-picker/${info.project.name}.png` });
+    await selector.selectOption('custom');
+    await page.getByLabel('Custom model name', { exact: true }).fill('my-private-alias');
+    await page.getByRole('button', { name: 'Save connection', exact: true }).click();
+    await expect(page.getByText('Connection saved', { exact: true })).toBeVisible();
+    await page.reload();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(selector.locator('option', { value: 'model:local-alpha' })).toHaveCount(1);
+    await expect(selector).toHaveValue('custom');
+    await expect(page.getByLabel('Custom model name', { exact: true })).toHaveValue('my-private-alias');
+    await selector.selectOption({ label: 'local-alpha' });
+    await expect(page.getByLabel('Custom model name', { exact: true })).toHaveCount(0);
+    expect(requests.length).toBeGreaterThanOrEqual(3);
+    expect(requests.every((url) => url === '/v1/models')).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
 });

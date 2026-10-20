@@ -1,5 +1,6 @@
 """Account-owned inference connections. Credentials never enter coaching context or responses."""
 from dataclasses import dataclass, field
+import json
 from urllib.parse import urlsplit
 
 import httpx
@@ -120,7 +121,6 @@ async def list_models(data: dict, user: User = Depends(current_user), db: Sessio
                     content.extend(chunk)
                     if len(content) > 2_000_000:
                         raise ValueError("Model catalog is too large")
-                import json
                 payload = json.loads(content)
         if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
             raise ValueError("Invalid model catalog")

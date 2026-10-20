@@ -41,11 +41,16 @@ export function LlmConnection() {
     // Debounce edits; secrets are sent only in the request body, never query/cache keys.
     const timer = window.setTimeout(async () => {
       try {
-        const result = await api<{ models: string[] }>('/settings/llm/models', {
-          base_url: endpoint,
-          ...(apiKey ? { api_key: apiKey } : {}),
-          clear_api_key: clearKey,
-        }, 'POST', controller.signal);
+        const result = await api<{ models: string[] }>(
+          '/settings/llm/models',
+          {
+            base_url: endpoint,
+            ...(apiKey ? { api_key: apiKey } : {}),
+            clear_api_key: clearKey,
+          },
+          'POST',
+          controller.signal,
+        );
         if (!controller.signal.aborted) setModels(result.models);
       } catch {
         if (!controller.signal.aborted) setModelsError(true);
@@ -53,7 +58,10 @@ export function LlmConnection() {
         if (!controller.signal.aborted) setModelsLoading(false);
       }
     }, 350);
-    return () => { window.clearTimeout(timer); controller.abort(); };
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [endpoint, apiKey, clearKey, refreshModels]);
   const useCustomModel = customModel || (!!draft?.model && !models.includes(draft.model));
   useEffect(() => {
@@ -119,29 +127,57 @@ export function LlmConnection() {
                   <small>{t('llmEndpointHelp')}</small>
                 </Field>
                 <Field label={t('llmModel')}>
-                  <select value={useCustomModel ? 'custom' : draft.model ? `model:${draft.model}` : ''}
+                  <select
+                    value={useCustomModel ? 'custom' : draft.model ? `model:${draft.model}` : ''}
                     onChange={(event) => {
                       const custom = event.target.value === 'custom';
                       setCustomModel(custom);
                       change({ model: custom ? '' : event.target.value.slice(6) });
-                    }}>
-                    <option value="" disabled>{t('llmSelectModel')}</option>
-                    {models.map((model) => <option key={model} value={`model:${model}`}>{model}</option>)}
+                    }}
+                  >
+                    <option value="" disabled>
+                      {t('llmSelectModel')}
+                    </option>
+                    {models.map((model) => (
+                      <option key={model} value={`model:${model}`}>
+                        {model}
+                      </option>
+                    ))}
                     <option value="custom">{t('llmCustomModel')}</option>
                   </select>
                 </Field>
-                {useCustomModel && <Field label={t('llmCustomModelName')}>
-                  <input value={draft.model} placeholder="your-served-model" maxLength={200}
-                    onChange={(event) => change({ model: event.target.value })} />
-                </Field>}
+                {useCustomModel && (
+                  <Field label={t('llmCustomModelName')}>
+                    <input
+                      value={draft.model}
+                      placeholder="your-served-model"
+                      maxLength={200}
+                      onChange={(event) => change({ model: event.target.value })}
+                    />
+                  </Field>
+                )}
                 <div className="llm-model-status">
                   <span role="status">
-                    {t(modelsLoading ? 'llmModelsLoading' : modelsError ? 'llmModelsError'
-                      : !endpoint ? 'llmModelsEndpoint' : models.length ? 'llmModelsLoaded' : 'llmModelsEmpty')}
+                    {t(
+                      modelsLoading
+                        ? 'llmModelsLoading'
+                        : modelsError
+                          ? 'llmModelsError'
+                          : !endpoint
+                            ? 'llmModelsEndpoint'
+                            : models.length
+                              ? 'llmModelsLoaded'
+                              : 'llmModelsEmpty',
+                    )}
                   </span>
-                  <button className="text-button" type="button" disabled={!endpoint || modelsLoading}
-                    onClick={() => setRefreshModels((current) => current + 1)}>
-                    <RefreshCw size={14} />{t('llmRefreshModels')}
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={!endpoint || modelsLoading}
+                    onClick={() => setRefreshModels((current) => current + 1)}
+                  >
+                    <RefreshCw size={14} />
+                    {t('llmRefreshModels')}
                   </button>
                 </div>
                 <Field label={t('llmApiKey')}>
