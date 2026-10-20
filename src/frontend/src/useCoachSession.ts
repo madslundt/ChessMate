@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, streamCoach } from "./api";
 import { useT } from "./i18n";
 import { runAnalysis } from "./analysisJobs";
@@ -114,11 +114,10 @@ export function useCoachSession({
     };
   }, [game?.id, fen, exploring, reviewMode, tab]);
 
-  useEffect(() => {
-    scroll.current?.scrollTo({
-      top: scroll.current.scrollHeight,
-      behavior: "smooth",
-    });
+  useLayoutEffect(() => {
+    const container = scroll.current;
+    if (!container) return;
+    container.scrollTop = container.scrollHeight;
   }, [messages, busy, hint, game?.revision, fen]);
   const budget = {
     time_ms: preferences.analysis_time_ms,

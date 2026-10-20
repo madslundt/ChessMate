@@ -30,6 +30,7 @@ class GameView(View):
     initial_fen: str
     moves: list[MoveView]
     revision: int
+    can_redo: bool = False
     mode: Literal["computer", "training", "analysis"]
     player_color: Literal["white", "black"]
     difficulty: int

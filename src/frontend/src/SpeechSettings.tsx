@@ -21,6 +21,8 @@ export interface SpeechSettingsValue {
 }
 
 const QUERY_KEY = ['speech-settings'];
+const STT_MODELS = ['whisper-1', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe'];
+const TTS_MODELS = ['tts-1', 'tts-1-hd', 'gpt-4o-mini-tts'];
 /** Self-loading settings form; mount this component inside the Settings page. */
 export function SpeechSettings() {
   const lang = useContext(LocaleContext);
@@ -130,12 +132,19 @@ export function SpeechSettings() {
                         />
                       </Field>
                       <Field label={label('STT model', 'STT-model')}>
-                        <input
+                        <select
+                          value={STT_MODELS.includes(draft.stt_model) ? draft.stt_model : 'custom'}
+                          onChange={(event) => change({ stt_model: event.target.value === 'custom' ? '' : event.target.value })}
+                        >
+                          {STT_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}
+                          <option value="custom">{label('Custom…', 'Brugerdefineret…')}</option>
+                        </select>
+                        {!STT_MODELS.includes(draft.stt_model) && <input
                           value={draft.stt_model}
-                          placeholder="whisper-1"
+                          placeholder={label('Enter model name', 'Indtast modelnavn')}
                           maxLength={200}
                           onChange={(event) => change({ stt_model: event.target.value })}
-                        />
+                        />}
                       </Field>
                       <Field label={label('API key', 'API-nøgle')}>
                         <input
@@ -190,12 +199,19 @@ export function SpeechSettings() {
                         />
                       </Field>
                       <Field label={label('TTS model', 'TTS-model')}>
-                        <input
+                        <select
+                          value={TTS_MODELS.includes(draft.tts_model) ? draft.tts_model : 'custom'}
+                          onChange={(event) => change({ tts_model: event.target.value === 'custom' ? '' : event.target.value })}
+                        >
+                          {TTS_MODELS.map((model) => <option key={model} value={model}>{model}</option>)}
+                          <option value="custom">{label('Custom…', 'Brugerdefineret…')}</option>
+                        </select>
+                        {!TTS_MODELS.includes(draft.tts_model) && <input
                           value={draft.tts_model}
-                          placeholder="tts-1"
+                          placeholder={label('Enter model name', 'Indtast modelnavn')}
                           maxLength={200}
                           onChange={(event) => change({ tts_model: event.target.value })}
-                        />
+                        />}
                       </Field>
                       <Field label={label('Voice', 'Stemme')}>
                         <input

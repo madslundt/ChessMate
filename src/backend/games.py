@@ -44,7 +44,7 @@ def filtered_evidence(value, hidden: set[str]):
     return value
 
 
-def state(game: Game, user: User | None = None, include_evidence: bool = False) -> dict:
+def state(game: Game, user: User | None = None, include_evidence: bool = False, can_redo: bool = False) -> dict:
     board = board_for(game)
     outcome = board.outcome(claim_draw=True)
     prefs = Preferences.model_validate(user.preferences or {}) if user else Preferences()
@@ -88,6 +88,7 @@ def state(game: Game, user: User | None = None, include_evidence: bool = False) 
         moves.append(move)
     return {"id": game.id, "fen": board.fen(), "initial_fen": game.initial_fen, "moves": moves,
             "revision": game.revision, "mode": game.mode, "player_color": game.player_color,
+            "can_redo": can_redo,
             "difficulty": game.difficulty, "created_at": game.created_at.isoformat(),
             "status": outcome.termination.name.lower() if outcome else "check" if board.is_check() else "playing",
             "result": outcome.result() if outcome else "*", "turn": "white" if board.turn else "black",
@@ -136,6 +137,14 @@ def commit_event(db: Session, game: Game, kind: str, payload: dict) -> None:
         raise HTTPException(409, "This game changed. Refresh before trying again.") from None
 
 
+def redo_payload(db: Session, game: Game) -> list[dict] | None:
+    latest = db.scalar(select(GameEvent).where(GameEvent.game_id == game.id)
+        .order_by(GameEvent.revision.desc()).limit(1))
+    if not latest or latest.kind != "undo": return None
+    removed = latest.payload.get("removed")
+    return removed if isinstance(removed, list) and removed else None
+
+
 @router.post("", status_code=201, response_model=GameView)
 def create_game(data: GameCreate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     if data.fen and data.pgn: raise HTTPException(422, "Import either FEN or PGN, not both")
@@ -170,12 +179,13 @@ def create_game(data: GameCreate, user: User = Depends(current_user), db: Sessio
 @router.get("", response_model=list[GameView])
 def list_games(user: User = Depends(current_user), db: Session = Depends(get_db), limit: int = 50) -> list[dict]:
     games = db.scalars(select(Game).where(Game.user_id == user.id).order_by(Game.created_at.desc()).limit(max(1, min(100, limit))))
-    return [state(game, user) for game in games]
+    return [state(game, user, can_redo=redo_payload(db, game) is not None) for game in games]
 
 
 @router.get("/{game_id}", response_model=GameView)
 def get_game(game_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
-    return state(owned_game(db, game_id, user), user)
+    game = owned_game(db, game_id, user)
+    return state(game, user, can_redo=redo_payload(db, game) is not None)
 
 
 @router.post("/{game_id}/moves", response_model=GameView)
@@ -195,7 +205,7 @@ def make_move(game_id: str, data: MoveRequest, user: User = Depends(current_user
     feedback = feedback_for_learner(feedback, "white" if board.turn else "black", game.player_color, prefs.coach_language)
     record = append_move(game, board, move, feedback, "player")
     commit_event(db, game, "move", record)
-    return state(game, user)
+    return state(game, user, can_redo=redo_payload(db, game) is not None)
 
 
 @router.post("/{game_id}/computer", response_model=GameView)
@@ -215,7 +225,7 @@ def computer_move(game_id: str, data: Revision, user: User = Depends(current_use
     feedback = feedback_for_learner(feedback, "white" if board.turn else "black", game.player_color, prefs.coach_language)
     record = append_move(game, board, move, feedback, "computer")
     commit_event(db, game, "computer_move", record)
-    return state(game, user)
+    return state(game, user, can_redo=redo_payload(db, game) is not None)
 
 
 @router.post("/{game_id}/undo", response_model=GameView)
@@ -228,7 +238,20 @@ def undo(game_id: str, data: Revision, user: User = Depends(current_user), db: S
     removed = game.moves[-count:]
     game.moves = game.moves[:-count]
     commit_event(db, game, "undo", {"removed": removed})
-    return state(game, user)
+    return state(game, user, can_redo=True)
+
+
+@router.post("/{game_id}/redo", response_model=GameView)
+def redo(game_id: str, data: Revision, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    game = owned_game(db, game_id, user, data.revision)
+    if game.mode not in ("training", "analysis"):
+        raise HTTPException(409, "Redo is available in training and analysis games")
+    restored = redo_payload(db, game)
+    if not restored:
+        raise HTTPException(409, "No moves to redo")
+    game.moves = [*game.moves, *restored]
+    commit_event(db, game, "redo", {"restored": restored})
+    return state(game, user, can_redo=False)
 
 
 @router.get("/{game_id}/pgn", response_class=PlainTextResponse)

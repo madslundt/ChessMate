@@ -95,6 +95,7 @@ export interface Game {
   initial_fen: string;
   moves: MoveRecord[];
   revision: number;
+  can_redo?: boolean;
   mode: "computer" | "training" | "analysis";
   player_color: Color;
   difficulty: number;

@@ -13,7 +13,9 @@ export interface SpeechSettings {
 
 function profileHeaders() {
   const profileId = localStorage.getItem('chessmate.profile');
-  return profileId ? { 'X-Profile-ID': profileId } : {};
+  const headers: Record<string, string> = {};
+  if (profileId) headers['X-Profile-ID'] = profileId;
+  return headers;
 }
 
 async function responseError(response: Response) {

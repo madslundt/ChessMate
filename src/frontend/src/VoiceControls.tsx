@@ -30,6 +30,7 @@ type SpeechWindow = Window & {
 };
 
 export type SpeechMode = 'browser' | 'server';
+const SILENCE_MS = 1400;
 
 interface VoiceControlsProps {
   /** Current coach question. Recognized text is appended for review before submit. */
@@ -95,7 +96,9 @@ export function VoiceControls({
   const finalTranscriptRef = useRef('');
   const questionRef = useRef(question);
   const listeningRef = useRef(false);
-  const pressedRef = useRef(false);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const silenceFrameRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -111,8 +114,10 @@ export function VoiceControls({
     setRecognitionSupported(!!(speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition));
     setSynthesisSupported(!!(window.speechSynthesis && window.SpeechSynthesisUtterance));
     return () => {
-      pressedRef.current = false;
       listeningRef.current = false;
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (silenceFrameRef.current !== null) cancelAnimationFrame(silenceFrameRef.current);
+      void audioContextRef.current?.close();
       recognitionRef.current?.abort();
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.ondataavailable = null;
@@ -127,17 +132,25 @@ export function VoiceControls({
     };
   }, []);
 
-  const appendTranscript = (spokenText: string) => {
+  const submitRecognizedSpeech = (spokenText: string) => {
     const spoken = spokenText.trim();
     if (!spoken) return;
-    const current = questionRef.current.trim();
-    const nextQuestion = current ? `${current} ${spoken}` : spoken;
-    questionRef.current = nextQuestion;
-    setQuestion(nextQuestion);
+    const value = [questionRef.current.trim(), spoken].filter(Boolean).join(' ');
+    questionRef.current = '';
+    setQuestion('');
+    onSubmit(value);
+  };
+
+  const resetSilenceTimer = () => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = setTimeout(stopListening, SILENCE_MS);
   };
 
   const stopListening = () => {
-    pressedRef.current = false;
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = null;
+    if (silenceFrameRef.current !== null) cancelAnimationFrame(silenceFrameRef.current);
+    silenceFrameRef.current = null;
     if (sttMode === 'server') {
       if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
       return;
@@ -161,7 +174,7 @@ export function VoiceControls({
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!pressedRef.current) {
+      if (!listeningRef.current) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
@@ -180,6 +193,10 @@ export function VoiceControls({
       recorder.onstop = async () => {
         setListening(false);
         listeningRef.current = false;
+        if (silenceFrameRef.current !== null) cancelAnimationFrame(silenceFrameRef.current);
+        silenceFrameRef.current = null;
+        await audioContextRef.current?.close();
+        audioContextRef.current = null;
         setTranscribing(true);
         try {
           const mimeType = recorder.mimeType || audioChunksRef.current[0]?.type || 'audio/webm';
@@ -189,7 +206,7 @@ export function VoiceControls({
           const result = (await onServerTranscribe(audio, mimeType)).trim();
           setTranscript(result);
           setInterimTranscript('');
-          appendTranscript(result);
+          submitRecognizedSpeech(result);
         } catch (caught) {
           const detail = caught instanceof Error ? caught.message : '';
           setError(detail || (language.toLowerCase().startsWith('da') ? 'Talegenkendelse mislykkedes.' : 'Speech recognition failed.'));
@@ -204,10 +221,34 @@ export function VoiceControls({
       recorder.start();
       listeningRef.current = true;
       setListening(true);
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      context.createMediaStreamSource(stream).connect(analyser);
+      audioContextRef.current = context;
+      const samples = new Uint8Array(analyser.fftSize);
+      let heardSpeech = false;
+      let quietSince = 0;
+      const watchSilence = () => {
+        if (!listeningRef.current) return;
+        analyser.getByteTimeDomainData(samples);
+        const rms = Math.sqrt(samples.reduce((sum, sample) => sum + (sample - 128) ** 2, 0) / samples.length) / 128;
+        if (rms > 0.025) {
+          heardSpeech = true;
+          quietSince = 0;
+        } else if (heardSpeech) {
+          quietSince ||= Date.now();
+          if (Date.now() - quietSince >= SILENCE_MS) {
+            stopListening();
+            return;
+          }
+        }
+        silenceFrameRef.current = requestAnimationFrame(watchSilence);
+      };
+      silenceFrameRef.current = requestAnimationFrame(watchSilence);
     } catch (caught) {
       const detail = caught instanceof Error ? caught.message : '';
       setError(detail || messageForRecognitionError('not-allowed', language));
-      pressedRef.current = false;
       listeningRef.current = false;
       setListening(false);
     }
@@ -223,7 +264,7 @@ export function VoiceControls({
     finalTranscriptRef.current = '';
     const recognition = new Recognition();
     recognition.lang = language;
-    recognition.continuous = false;
+    recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
       let interim = '';
@@ -235,13 +276,15 @@ export function VoiceControls({
       }
       setTranscript(finalTranscriptRef.current);
       setInterimTranscript(interim);
+      if (finalTranscriptRef.current || interim) resetSilenceTimer();
     };
     recognition.onerror = (event) => setError(messageForRecognitionError(event.error, language));
     recognition.onend = () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       listeningRef.current = false;
       setListening(false);
       setInterimTranscript('');
-      appendTranscript(finalTranscriptRef.current);
+      submitRecognizedSpeech(finalTranscriptRef.current);
     };
     recognitionRef.current = recognition;
     try {
@@ -249,17 +292,23 @@ export function VoiceControls({
       listeningRef.current = true;
       setListening(true);
     } catch {
-      pressedRef.current = false;
+      listeningRef.current = false;
+      setListening(false);
       setError(messageForRecognitionError('start-failed', language));
     }
   };
 
   const startListening = () => {
-    if (disabled || listeningRef.current || transcribing) return;
-    pressedRef.current = true;
+    if (listeningRef.current) {
+      stopListening();
+      return;
+    }
+    if (disabled || transcribing) return;
     setError('');
     setTranscript('');
     setInterimTranscript('');
+    listeningRef.current = true;
+    setListening(true);
     if (sttMode === 'server') void startServerRecording();
     else startBrowserRecognition();
   };
@@ -334,28 +383,11 @@ export function VoiceControls({
           type="button"
           disabled={disabled || transcribing}
           aria-pressed={listening}
-          onPointerDown={(event) => {
-            event.preventDefault();
-            startListening();
-          }}
-          onPointerUp={stopListening}
-          onPointerCancel={stopListening}
-          onPointerLeave={(event) => {
-            if (event.buttons) stopListening();
-          }}
-          onKeyDown={(event) => {
-            if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) {
-              event.preventDefault();
-              startListening();
-            }
-          }}
-          onKeyUp={(event) => {
-            if (event.key === ' ' || event.key === 'Enter') stopListening();
-          }}
-          title={danish ? 'Hold nede og tal' : 'Hold to talk'}
+          onClick={startListening}
+          title={listening ? (danish ? 'Klik for at slå mikrofonen fra' : 'Click to mute') : (danish ? 'Klik for at tale' : 'Click to speak')}
         >
           {listening ? <MicOff size={16} /> : <Mic size={16} />}
-          <span>{listening ? (danish ? 'Lytter…' : 'Listening…') : transcribing ? (danish ? 'Behandler…' : 'Transcribing…') : (danish ? 'Hold for at tale' : 'Hold to talk')}</span>
+          <span>{listening ? (danish ? 'Klik for at slå fra' : 'Click to mute') : transcribing ? (danish ? 'Behandler…' : 'Transcribing…') : (danish ? 'Klik for at tale' : 'Click to speak')}</span>
         </button>
       ) : (
         <span className="voice-control-note">

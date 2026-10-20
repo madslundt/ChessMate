@@ -15,6 +15,7 @@ import {
   RotateCcw,
   ScanEye,
   Repeat2,
+  Redo2,
   Undo2,
   Upload,
   UserRound,
@@ -414,14 +415,24 @@ export function GameWorkspace(props: WorkspaceProps) {
         </span>
         <div>
           {game && game.mode !== 'computer' && !(analysisMode && game.mode !== 'analysis') && (
-            <button
-              className="text-button"
-              disabled={busy || !game.moves.length || !!explore}
-              onClick={() => void mutate((g) => api<Game>(`/games/${g.id}/undo`, { revision: g.revision }))}
-            >
-              <Undo2 size={15} />
-              {t('undo')}
-            </button>
+            <>
+              <button
+                className="text-button"
+                disabled={busy || !game.moves.length || !!explore}
+                onClick={() => void mutate((g) => api<Game>(`/games/${g.id}/undo`, { revision: g.revision }))}
+              >
+                <Undo2 size={15} />
+                {t('undo')}
+              </button>
+              <button
+                className="text-button"
+                disabled={busy || !game.can_redo || !!explore}
+                onClick={() => void mutate((g) => api<Game>(`/games/${g.id}/redo`, { revision: g.revision }))}
+              >
+                <Redo2 size={15} />
+                {t('redo')}
+              </button>
+            </>
           )}
           <button className="text-button" onClick={() => setImporting(true)}>
             <Upload size={15} />

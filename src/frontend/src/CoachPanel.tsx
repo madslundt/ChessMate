@@ -23,6 +23,7 @@ function MoveFeedbackHistory({
   preferences,
   exploring,
   feedbackPly,
+  currentFen,
   orientation,
   onVisual,
   onPreview,
@@ -32,12 +33,14 @@ function MoveFeedbackHistory({
   preferences: Preferences;
   exploring: boolean;
   feedbackPly: number;
+  currentFen: string;
   orientation: Color;
   onVisual: (insight: VisualInsight) => void;
   onPreview: (candidate: Candidate, baseFen?: string, rootPly?: number) => void;
   onRetry: (baseFen: string, rootPly?: number) => void;
 }) {
   const t = useT();
+  const [expanded, setExpanded] = useState<Record<string, string | null>>({});
   if (!game || exploring) return null;
   return (
     <>
@@ -57,6 +60,21 @@ function MoveFeedbackHistory({
           Math.floor((index + (initialTurn === 'b' ? 1 : 0)) / 2);
         const isCurrentFeedback = index === feedbackPly;
         const moveBase = move.before_fen || (index === 0 ? game.initial_fen : game.moves[index - 1]?.fen);
+        const expandedKey = `${game.id}-${index}-${move.uci}`;
+        const activeExplanation = expanded[expandedKey];
+        const threatInsights = feedback.insights?.filter((insight) => /threat|attack|check|defen|pin|fork|tactic/i.test(`${insight.claim_type || ''} ${insight.id} ${insight.text}`)) || [];
+        const summary = feedback.text || feedback.explanation || feedback.assessment || feedback.consequence;
+        const explanation = activeExplanation === 'bad'
+          ? feedback.consequence || feedback.explanation || feedback.text || feedback.assessment
+          : activeExplanation === 'good'
+            ? feedback.explanation || feedback.text || feedback.assessment
+            : activeExplanation === 'better'
+              ? feedback.best?.explanation || feedback.best?.idea || (feedback.best ? `${t('betterMoveIs')} ${feedback.best.san}.` : t('noBetterMoveConfirmed'))
+              : '';
+        const toggleExplanation = (kind: string) => setExpanded((current) => ({
+          ...current,
+          [expandedKey]: current[expandedKey] === kind ? null : kind,
+        }));
         return (
           <div className={`feedback-note move-feedback-entry ${moveColor} ${moveClass || ''}`} data-testid="move-feedback" key={`${index}-${move.uci}`}>
             <div className="move-feedback-heading">
@@ -66,30 +84,40 @@ function MoveFeedbackHistory({
               </span>
               <span className="move-feedback-san">{moveNumber}{moveColor === 'white' ? '.' : '...'} {move.san}</span>
             </div>
-            <div>
-              <Sparkles size={16} />
+            <div className="move-feedback-summary">
+              <Sparkles size={15} aria-hidden="true" />
               <strong>
                 {moveClass && ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder', 'forced', 'uncertain'].includes(moveClass)
                   ? t(moveClass as 'good')
                   : t('unclassified')}
               </strong>
+              {feedback.actor === 'opponent' && <span>{t('opponentMove')}</span>}
             </div>
-            {feedback.actor === 'opponent' && <small>{t('opponentMove')}</small>}
-            <ConfidenceBadge mode={feedback.analysis_mode} confidence={feedback.confidence} />
-            <ExplanationText mode={preferences.explanation_mode}>
-              <p>{feedback.text || feedback.explanation || feedback.assessment}</p>
-              {feedback.consequence && feedback.consequence !== feedback.text && <p>{feedback.consequence}</p>}
-            </ExplanationText>
-            {isCurrentFeedback && preferences.explanation_mode !== 'text' && <VisualExplanation coaching={feedback} onVisual={onVisual} onPreview={onPreview} />}
-            {isCurrentFeedback && moveBase && <ConsequenceComparison feedback={feedback} base={moveBase} preferences={preferences} orientation={orientation} onPreview={onPreview} />}
-            {isCurrentFeedback && moveBase && <div className="visual-explanation-actions">
-              {feedback.played && <button className="text-button" onClick={() => onPreview(feedback.played!, moveBase, index)}>{t('watchConsequence')}</button>}
-              {feedback.best && !preferences.hide_best_moves && <button className="text-button" onClick={() => onPreview(feedback.best!, moveBase, index)}>{t('watchAlternative')}</button>}
-              <button className="text-button" onClick={() => onRetry(moveBase, index)}>{t('retryPosition')}</button>
-            </div>}
-            {isCurrentFeedback && preferences.feedback === 'detailed' && feedback.takeaway && (
-              <p className="takeaway">{feedback.takeaway}</p>
-            )}
+            {summary && <ExplanationText mode={preferences.explanation_mode}><p className="move-feedback-preview">{summary}</p></ExplanationText>}
+            <details className="move-feedback-details">
+              <summary>{t('moreMoveDetails')}</summary>
+              <ConfidenceBadge mode={feedback.analysis_mode} confidence={feedback.confidence} />
+              {isCurrentFeedback && preferences.explanation_mode !== 'text' && <VisualExplanation coaching={feedback} onVisual={onVisual} onPreview={onPreview} />}
+              <ExplanationText mode={preferences.explanation_mode}>
+                {feedback.consequence && feedback.consequence !== summary && <p>{feedback.consequence}</p>}
+                {feedback.takeaway && <p className="takeaway">{feedback.takeaway}</p>}
+              </ExplanationText>
+              {activeExplanation === 'threats' && (threatInsights.length ? <div className="move-threat-details">{threatInsights.map((insight) => <p key={insight.id}>{insight.text}</p>)}{threatInsights.some((insight) => insight.fen === currentFen) && <VisualExplanation coaching={{ insights: threatInsights.filter((insight) => insight.fen === currentFen) }} onVisual={onVisual} onPreview={onPreview} />}</div> : <p className="muted">{t('threatsUnavailable')}</p>)}
+              <div className="visual-explanation-actions move-feedback-actions">
+                <button className="text-button" onClick={() => feedback.best && moveBase ? onPreview(feedback.best, moveBase, index) : toggleExplanation('better')}>{t('showBetterMove')}</button>
+                <button className="text-button" onClick={() => toggleExplanation('threats')} aria-expanded={activeExplanation === 'threats'}>{t('showThreats')}</button>
+                <button className="text-button" onClick={() => toggleExplanation('bad')} aria-expanded={activeExplanation === 'bad'}>{t('whyWasBad')}</button>
+                <button className="text-button" onClick={() => toggleExplanation('good')} aria-expanded={activeExplanation === 'good'}>{t('whyWasGood')}</button>
+                <button className="text-button" onClick={() => toggleExplanation('better')} aria-expanded={activeExplanation === 'better'}>{t('whatWasBetter')}</button>
+              </div>
+              {activeExplanation && activeExplanation !== 'threats' && <p className="move-feedback-explanation">{explanation || t('explanationUnavailable')}</p>}
+              {isCurrentFeedback && moveBase && <ConsequenceComparison feedback={feedback} base={moveBase} preferences={preferences} orientation={orientation} onPreview={onPreview} />}
+              {isCurrentFeedback && moveBase && <div className="visual-explanation-actions">
+                {feedback.played && <button className="text-button" onClick={() => onPreview(feedback.played!, moveBase, index)}>{t('watchConsequence')}</button>}
+                {feedback.best && !preferences.hide_best_moves && <button className="text-button" onClick={() => onPreview(feedback.best!, moveBase, index)}>{t('watchAlternative')}</button>}
+                <button className="text-button" onClick={() => onRetry(moveBase, index)}>{t('retryPosition')}</button>
+              </div>}
+            </details>
           </div>
         );
       })}
@@ -312,6 +340,17 @@ export function CoachPanel({
           <>
             <div className="coach-scroll" ref={scroll}>
               <div className="teaching-controls"><label htmlFor="teaching-mode">{t('teachingStyle')}</label><select id="teaching-mode" value={teachingMode} onChange={(event) => setTeachingMode(event.target.value as typeof teachingMode)}><option value="guided">{t('guidedQuestions')}</option><option value="direct">{t('directExplanation')}</option></select>{state && <small role="status">{t('discoveredFacts')}: {state.discovered_ids.length}</small>}</div>
+              <div className="coach-actions coach-primary-actions">
+                <button className="outline-button" onClick={requestHint} disabled={positionPending || analyzing || busy || hintLevel >= 4}>
+                  <Lightbulb size={20} />
+                  {hintLevel ? t('nextHint') : t('hint')}
+                  {hintLevel > 0 && <small>{hintLevel}/4</small>}
+                </button>
+                <button className="outline-button" onClick={() => void compare()} disabled={positionPending || analyzing}>
+                  <ChartNoAxesColumnIncreasing size={20} />
+                  {t('compare')}
+                </button>
+              </div>
               {teachingMode === 'guided' && state && <SocraticProgress state={state} />}
               {teachingMode === 'guided' && <button className="text-button" disabled={busy || positionPending} onClick={() => onPickSquare((square) => void send(square))}>{t('answerOnBoard')}</button>}
               <div className="coach-intro">
@@ -331,17 +370,6 @@ export function CoachPanel({
                 </div>
               )}
               <div className="coach-actions">
-                <button className="outline-button" onClick={requestHint} disabled={positionPending || analyzing || busy || hintLevel >= 4}>
-                  <Lightbulb size={20} />
-                  {hintLevel ? t('nextHint') : t('hint')}
-                  {hintLevel > 0 && <small>{hintLevel}/4</small>}
-                </button>
-                <button className="outline-button" onClick={() => void compare()} disabled={positionPending || analyzing}>
-                  <ChartNoAxesColumnIncreasing size={20} />
-                  {t('compare')}
-                </button>
-              </div>
-              <div className="coach-actions">
                 <button className="text-button" disabled={positionPending || analyzing} onClick={() => void compare('deep')}>{t('deepAnalysis')}</button>
                 <button className="text-button" aria-expanded={calculating} onClick={() => setCalculating(!calculating)}>{t('calculateFirst')}</button>
               </div>
@@ -350,8 +378,8 @@ export function CoachPanel({
               {analyzing && <div className="coach-actions"><Spinner label={t('thinking')} /><button className="text-button" onClick={cancelAnalysis}>{t('cancelAnalysis')}</button></div>}
               {hint && <HintCard hint={hint} hintLevel={hintLevel} hintMove={hintMove} hintVisual={hintVisual} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onVisual={onVisual} onPreview={onPreview} />}
               {showCandidates && analysis?.fen === fen && <CandidateList orientation={orientation} analysis={analysis} fen={fen} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onPreview={onPreview} onVisual={onVisual} />}
+              <MoveFeedbackHistory game={game} preferences={preferences} exploring={exploring} feedbackPly={feedbackPly} currentFen={fen} orientation={orientation} onVisual={onVisual} onPreview={onPreview} onRetry={onRetry} />
               <CoachMessages messages={messages} busy={busy || positionPending} fen={fen} preferences={preferences} onVisual={onVisual} onPreview={onPreview} onResolve={(uci) => void send(preferences.coach_language === 'da' ? `Hvad hvis jeg spiller ${uci}?` : `What if I play ${uci}?`)} />
-              <MoveFeedbackHistory game={game} preferences={preferences} exploring={exploring} feedbackPly={feedbackPly} orientation={orientation} onVisual={onVisual} onPreview={onPreview} onRetry={onRetry} />
               <ErrorNotice error={error} onDismiss={() => setError(null)} />
             </div>
             <form
