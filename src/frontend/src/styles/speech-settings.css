@@ -60,6 +60,19 @@
 .speech-model-status .text-button {
   flex: 0 0 auto;
 }
+.speech-stt-test {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  margin-top: 5px;
+}
+.speech-stt-test p,
+.speech-stt-test small {
+  margin: 0;
+}
+.speech-stt-test-error {
+  color: var(--danger, #b42318);
+}
 .speech-security {
   margin-top: 16px;
   max-width: 520px;

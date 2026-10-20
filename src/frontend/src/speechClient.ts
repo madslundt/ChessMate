@@ -23,6 +23,20 @@ async function responseError(response: Response) {
     const data = await response.json();
     if (data.detail && typeof data.detail === 'object' && typeof data.detail.message === 'string') return data.detail.message;
     if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail)) {
+      const messages = data.detail
+        .map((issue: unknown) => {
+          if (!issue || typeof issue !== 'object') return '';
+          const error = issue as { loc?: unknown; msg?: unknown };
+          const location = Array.isArray(error.loc)
+            ? error.loc.filter((part): part is string | number => typeof part === 'string' || typeof part === 'number').join('.')
+            : '';
+          const message = typeof error.msg === 'string' ? error.msg : '';
+          return [location, message].filter(Boolean).join(': ');
+        })
+        .filter(Boolean);
+      if (messages.length) return messages.join('; ');
+    }
   } catch {
     // Keep upstream response bodies private; only return a generic local error.
   }

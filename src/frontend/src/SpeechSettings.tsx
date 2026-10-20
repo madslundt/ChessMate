@@ -1,9 +1,10 @@
-import { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, RefreshCw, Save } from 'lucide-react';
+import { Check, Mic, RefreshCw, Save, Square } from 'lucide-react';
 import { api, ApiError } from './api';
 import { LocaleContext, useT, type TranslationKey } from './i18n';
 import { ErrorNotice, Field, Spinner, Toggle } from './components';
+import { transcribeAudio } from './speechClient';
 import './styles/speech-settings.css';
 
 /** Settings returned by GET /settings/speech. API keys are represented only by presence flags. */
@@ -123,6 +124,13 @@ export function SpeechSettings() {
   const [saveError, setSaveError] = useState<unknown>(null);
   const [refreshSttModels, setRefreshSttModels] = useState(0);
   const [refreshTtsModels, setRefreshTtsModels] = useState(0);
+  const [testRecording, setTestRecording] = useState(false);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState('');
+  const [testError, setTestError] = useState('');
+  const testRecorder = useRef<MediaRecorder | null>(null);
+  const testStream = useRef<MediaStream | null>(null);
+  const testChunks = useRef<Blob[]>([]);
   const sttModels = useSpeechModels('stt', draft?.stt_base_url.trim().replace(/\/+$/, '') || '', sttKey, clearSttKey, draft?.verify_tls ?? true, refreshSttModels);
   const ttsModels = useSpeechModels('tts', draft?.tts_base_url.trim().replace(/\/+$/, '') || '', ttsKey, clearTtsKey, draft?.verify_tls ?? true, refreshTtsModels);
   const useCustomSttModel = !sttModels.models.includes(draft?.stt_model || '');
@@ -131,6 +139,63 @@ export function SpeechSettings() {
   useEffect(() => {
     if (query.data) setDraft((current) => current || query.data);
   }, [query.data]);
+
+  useEffect(() => () => {
+    if (testRecorder.current?.state === 'recording') testRecorder.current.stop();
+    testStream.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const sttConfigSaved = !!query.data && !!draft && draft.stt_mode === 'server'
+    && draft.stt_base_url === query.data.stt_base_url
+    && draft.stt_model === query.data.stt_model
+    && draft.verify_tls === query.data.verify_tls
+    && !sttKey && !clearSttKey;
+
+  async function startSttTest() {
+    setTestError('');
+    setTestResult('');
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+        throw new Error(label('Audio recording is not supported in this browser.', 'Lydoptagelse understøttes ikke i denne browser.'));
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      testStream.current = stream;
+      const recorder = new MediaRecorder(stream);
+      testChunks.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) testChunks.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        setTestRecording(false);
+        setTestBusy(true);
+        stream.getTracks().forEach((track) => track.stop());
+        testStream.current = null;
+        try {
+          const mimeType = recorder.mimeType || testChunks.current[0]?.type || 'audio/webm';
+          const audio = new Blob(testChunks.current, { type: mimeType });
+          const result = await transcribeAudio(audio, mimeType);
+          setTestResult(result);
+        } catch (error) {
+          setTestError(error instanceof Error ? error.message : label('STT test failed.', 'STT-test mislykkedes.'));
+        } finally {
+          setTestBusy(false);
+          testRecorder.current = null;
+        }
+      };
+      testRecorder.current = recorder;
+      recorder.start();
+      setTestRecording(true);
+    } catch (error) {
+      testStream.current?.getTracks().forEach((track) => track.stop());
+      testStream.current = null;
+      setTestRecording(false);
+      setTestError(error instanceof Error ? error.message : label('Could not start the STT test.', 'STT-testen kunne ikke startes.'));
+    }
+  }
+
+  function stopSttTest() {
+    if (testRecorder.current?.state === 'recording') testRecorder.current.stop();
+  }
 
   function change(values: Partial<SpeechSettingsValue>) {
     setDraft((current) => (current ? { ...current, ...values } : current));
@@ -259,6 +324,24 @@ export function SpeechSettings() {
                           }}
                         />
                       )}
+                      <div className="speech-stt-test">
+                        <button
+                          className="text-button"
+                          type="button"
+                          disabled={testBusy || (!testRecording && !sttConfigSaved)}
+                          onClick={testRecording ? stopSttTest : () => void startSttTest()}
+                        >
+                          {testBusy ? <Spinner /> : testRecording ? <Square size={15} /> : <Mic size={15} />}
+                          {testBusy
+                            ? label('Transcribing…', 'Transskriberer…')
+                            : testRecording
+                              ? label('Stop and transcribe', 'Stop og transskriber')
+                              : label('Test STT', 'Test STT')}
+                        </button>
+                        {!sttConfigSaved && <small>{label('Save the STT settings before testing.', 'Gem STT-indstillingerne før testen.')}</small>}
+                        {testResult && <p role="status">{label('Recognized:', 'Genkendt:')} {testResult}</p>}
+                        {testError && <p role="alert" className="speech-stt-test-error">{testError}</p>}
+                      </div>
                     </>
                   )}
                 </section>
@@ -361,7 +444,7 @@ export function SpeechSettings() {
               )}
               <div className="speech-settings-actions">
                 {saved && <span role="status"><Check size={16} />{label('Saved', 'Gemt')}</span>}
-                <button className="primary-button" type="submit" disabled={busy}>
+                <button className="primary-button" type="submit" disabled={busy || testRecording || testBusy}>
                   {busy ? <Spinner /> : <Save size={17} />}
                   {label('Save speech settings', 'Gem taleindstillinger')}
                 </button>
