@@ -5,6 +5,12 @@
   max-height: none;
   overflow: hidden;
 }
+@media (min-width: 901px) {
+  .coach-panel {
+    height: min(var(--board-panel-height, calc(100dvh - 150px)), var(--chat-available-height, calc(100dvh - 150px)));
+    max-height: min(var(--board-panel-height, calc(100dvh - 150px)), var(--chat-available-height, calc(100dvh - 150px)));
+  }
+}
 .panel-tabs {
   display: flex;
   border-bottom: 1px solid var(--line);
