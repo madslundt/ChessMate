@@ -6,6 +6,7 @@ import { api } from './api';
 import { BlunderReview } from './BlunderReview';
 import { ConsequenceComparison } from './ConsequenceComparison';
 import { ConfidenceBadge } from './ConfidenceBadge';
+import { ActiveRecallReview } from './ActiveRecallReview';
 import { ErrorNotice, Spinner } from './components';
 import { useT } from './i18n';
 import { analysisPath, Link } from './navigation';
@@ -162,54 +163,39 @@ export function GameReview({
             ))}
           </div>
           {current && (
-            <div className={`review-decision feedback-note ${current.rating}`}>
-              <strong>
-                {current.san} · {t(current.rating)}
-              </strong>
-              <ConfidenceBadge mode={current.feedback?.analysis_mode} confidence={current.feedback?.confidence} />
-              {['blunder', 'mistake', 'inaccuracy'].includes(current.rating) && current.feedback && game ? (
-                <BlunderReview
-                  key={`${game.id}-${current.ply}`}
-                  beforeFen={
-                    current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen)
-                  }
-                  uci={current.uci}
-                  feedback={current.feedback}
-                  preferences={preferences}
-                  onPreview={(candidate) =>
-                    onPreview(
-                      candidate,
-                      current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen),
-                      current.ply - 1,
-                    )
-                  }
-                />
-              ) : (
-                <p>{current.feedback?.text || current.feedback?.explanation || current.feedback?.assessment}</p>
-              )}
-              {current.feedback?.takeaway && <p className="takeaway">{current.feedback.takeaway}</p>}
-              {current.feedback && game && <ConsequenceComparison feedback={current.feedback} base={current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen)} preferences={preferences} orientation={orientation || game.player_color} onPreview={onPreview} />}
-              <div className="review-decision-actions">
-                <button
-                  className="outline-button"
-                  aria-pressed={!exploring && ply === current.ply - 1}
-                  onClick={() => onNavigate(current.ply - 1)}
-                >
-                  {t('beforeMove')}
-                </button>
-                <button
-                  className="outline-button"
-                  aria-pressed={!exploring && ply === current.ply}
-                  onClick={() => onNavigate(current.ply)}
-                >
-                  {t('afterMove')}
-                </button>
-                <button className="text-button" onClick={() => onRetry(current.before_fen || (current.ply === 1 ? game!.initial_fen : game!.moves[current.ply - 2].fen), current.ply - 1)}>{t('retryPosition')}</button>
-                <button className="text-button" disabled={exploring || ply !== current.ply - 1} onClick={onExplore}>
-                  {t('tryAlternative')}
-                </button>
-              </div>
-            </div>
+            <ActiveRecallReview
+              gameId={game!.id}
+              ply={current.ply}
+              san={current.san}
+              language={preferences.language}
+              positionFen={current.before_fen || (current.ply === 1 ? game!.initial_fen : game!.moves[current.ply - 2].fen)}
+              engineFeedback={
+                <div className={`review-decision feedback-note ${current.rating}`}>
+                  <strong>{current.san} · {t(current.rating)}</strong>
+                  <ConfidenceBadge mode={current.feedback?.analysis_mode} confidence={current.feedback?.confidence} />
+                  {['blunder', 'mistake', 'inaccuracy'].includes(current.rating) && current.feedback && game ? (
+                    <BlunderReview
+                      key={`${game.id}-${current.ply}`}
+                      beforeFen={current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen)}
+                      uci={current.uci}
+                      feedback={current.feedback}
+                      preferences={preferences}
+                      onPreview={(candidate) => onPreview(candidate, current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen), current.ply - 1)}
+                    />
+                  ) : (
+                    <p>{current.feedback?.text || current.feedback?.explanation || current.feedback?.assessment}</p>
+                  )}
+                  {current.feedback?.takeaway && <p className="takeaway">{current.feedback.takeaway}</p>}
+                  {current.feedback && game && <ConsequenceComparison feedback={current.feedback} base={current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen)} preferences={preferences} orientation={orientation || game.player_color} onPreview={onPreview} />}
+                  <div className="review-decision-actions">
+                    <button className="outline-button" aria-pressed={!exploring && ply === current.ply - 1} onClick={() => onNavigate(current.ply - 1)}>{t('beforeMove')}</button>
+                    <button className="outline-button" aria-pressed={!exploring && ply === current.ply} onClick={() => onNavigate(current.ply)}>{t('afterMove')}</button>
+                    <button className="text-button" onClick={() => onRetry(current.before_fen || (current.ply === 1 ? game!.initial_fen : game!.moves[current.ply - 2].fen), current.ply - 1)}>{t('retryPosition')}</button>
+                    <button className="text-button" disabled={exploring || ply !== current.ply - 1} onClick={onExplore}>{t('tryAlternative')}</button>
+                  </div>
+                </div>
+              }
+            />
           )}
           <div className="review-moves">
             {visible.map((move) => (
@@ -229,13 +215,6 @@ export function GameReview({
                   {firstMove + Math.floor((move.ply - 1 + offset) / 2)}
                   {(move.ply - 1 + offset) % 2 ? '…' : '.'} {move.san}
                 </strong>
-                <span className="review-move-copy">
-                  <span className="review-rating">
-                    <i className={`move-quality ${move.rating}`} />
-                    {t(move.rating)}
-                  </span>
-                  <span>{move.feedback?.text || move.feedback?.explanation || move.feedback?.assessment}</span>
-                </span>
                 <ChevronRight size={16} />
               </button>
             ))}

@@ -108,6 +108,15 @@ class TopicView(View):
     strength: str
 
 
+class GamePerformanceView(View):
+    game_id: str
+    date: str
+    assessed_moves: int
+    sound_moves: int
+    errors: int
+    sound_rate: float
+
+
 class ProgressView(View):
     games_played: int
     attempts: int
@@ -119,3 +128,4 @@ class ProgressView(View):
     due_reviews: int
     game_mistakes: dict[str, int]
     timeline: list[dict[str, Any]]
+    game_performance: list[GamePerformanceView] = Field(default_factory=list)

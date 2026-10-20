@@ -209,6 +209,148 @@
 .practice-more button:hover {
   background: var(--soft);
 }
+.study-plan,
+.improvement-trend {
+  margin: 18px 0;
+  padding: 20px;
+}
+.study-plan-heading,
+.improvement-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.study-plan-heading {
+  justify-content: flex-start;
+}
+.study-plan-heading h2,
+.improvement-heading h2,
+.improvement-trend h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 5px;
+  font-size: 17px;
+}
+.study-plan-heading p,
+.improvement-heading p,
+.improvement-trend > p {
+  margin: 0;
+  font-size: 12px;
+}
+.study-plan ol {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.study-plan li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.study-plan-day {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+.study-plan-copy {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+  min-width: 0;
+}
+.study-plan-copy strong {
+  font-size: 13px;
+}
+.study-plan-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.study-plan .outline-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  font-size: 11px;
+}
+.improvement-rate {
+  color: var(--accent);
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.improvement-comparison {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+.improvement-comparison small {
+  color: var(--muted);
+}
+.improvement-bars {
+  display: flex;
+  align-items: end;
+  gap: 9px;
+  min-height: 100px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.improvement-bars a {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: end;
+  gap: 5px;
+  min-width: 0;
+  text-decoration: none;
+}
+.improvement-bars a > span {
+  width: min(34px, 100%);
+  border-radius: 5px 5px 0 0;
+  background: var(--accent);
+  opacity: .8;
+}
+.improvement-bars a:hover > span {
+  opacity: 1;
+}
+.improvement-bars small {
+  color: var(--muted);
+  font-size: 9px;
+}
+.improvement-review-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+@media (max-width: 600px) {
+  .study-plan,
+  .improvement-trend {
+    padding: 15px;
+  }
+  .study-plan li {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .study-plan li .outline-button {
+    margin-left: 40px;
+  }
+}
 .topic-practice {
   margin: 15px 10px 5px;
 }

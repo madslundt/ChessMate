@@ -31,6 +31,7 @@ from .analysis_jobs import analysis_jobs, router as analysis_jobs_router
 from .fullgame_analysis import router as fullgame_analysis_router
 from .coaching_strategy import candidate_strategy, strategic_insights
 from .secure_profiles import router as secure_profiles_router
+from .speech_settings import router as speech_router
 
 
 @asynccontextmanager
@@ -60,9 +61,29 @@ async def security_headers(request: Request, call_next):
         if request.headers.get("sec-fetch-site") == "cross-site" and origin not in settings.allowed_origins:
             return JSONResponse({"detail": "Cross-site request rejected"}, status_code=403)
         length = request.headers.get("content-length")
-        if length and (not length.isdigit() or int(length) > 150000):
+        is_transcription = request.method == "POST" and request.url.path == "/api/speech/transcribe"
+        multipart = request.headers.get("content-type", "").split(";", 1)[0].strip().lower() == "multipart/form-data"
+        max_body = 11 * 1024 * 1024 if is_transcription and multipart else 150000
+        if length and (not length.isdigit() or int(length) > max_body):
             return JSONResponse({"detail": "Request body is too large"}, status_code=413)
-        if request.method != "DELETE" and request.headers.get("content-type", "").split(";")[0] != "application/json":
+        if is_transcription and multipart:
+            # Enforce the upload bound even when a client uses chunked transfer encoding.
+            body = bytearray()
+            async for chunk in request.stream():
+                body.extend(chunk)
+                if len(body) > max_body:
+                    return JSONResponse({"detail": "Request body is too large"}, status_code=413)
+            sent = False
+
+            async def replay_body():
+                nonlocal sent
+                if not sent:
+                    sent = True
+                    return {"type": "http.request", "body": bytes(body), "more_body": False}
+                return {"type": "http.disconnect"}
+
+            request._receive = replay_body
+        elif request.method != "DELETE" and request.headers.get("content-type", "").split(";")[0] != "application/json":
             return JSONResponse({"detail": "Send application/json"}, status_code=415)
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -78,6 +99,7 @@ async def engine_error(_request, exc):
 
 api = APIRouter(prefix="/api")
 api.include_router(secure_profiles_router)
+api.include_router(speech_router)
 api.include_router(auth.router)
 api.include_router(games.router)
 api.include_router(training_router)

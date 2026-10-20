@@ -6,6 +6,7 @@ import { Empty, ErrorNotice, Field, PageHeading, Spinner, Toggle } from './compo
 import { useT, type TranslationKey } from './i18n';
 import type { Game, Preferences } from './types';
 import { LlmConnection } from './LlmConnection';
+import { SpeechSettings } from './SpeechSettings';
 import { CoachingPreferences } from './CoachingPreferences';
 import { ImportModal } from './GameDialogs';
 import { gamePath, Link } from './navigation';
@@ -206,6 +207,7 @@ export function SettingsPage({
     <>
       <PageHeading title={t('settings')} />
       <LlmConnection />
+      <SpeechSettings />
       <form
         className="settings-form"
         onSubmit={async (e) => {

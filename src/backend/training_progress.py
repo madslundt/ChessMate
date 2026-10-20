@@ -71,13 +71,22 @@ def progress_data(db: Session, user: User) -> dict:
         topic["suggested_difficulty"] = max(1, min(5, target + adjustment))
         topic["strength"] = "developing" if topic["attempts"] < 3 else "strength" if topic["mastery"] >= .8 else "practice"
     total, correct = sum(t["attempts"] for t in topics.values()), sum(t["correct"] for t in topics.values())
-    games = db.scalars(select(Game).where(Game.user_id == user.id)).all()
+    games = db.scalars(select(Game).where(Game.user_id == user.id).order_by(Game.created_at)).all()
     mistakes: dict[str, int] = defaultdict(int)
     games_played = 0
+    game_performance = []
     for game in games:
         board = chess.Board(game.initial_fen)
+        assessed = sound = errors = 0
         for move in game.moves:
             feedback = move.get("feedback") or {}
+            # Only computer/training games provide a comparable, game-bound sample.
+            if game.mode in ("computer", "training") and board.turn == (game.player_color == "white"):
+                classification = str(feedback.get("classification", "")).lower()
+                if classification in {"best", "excellent", "good", "inaccuracy", "mistake", "blunder", "forced"}:
+                    assessed += 1
+                    sound += int(classification in {"best", "excellent", "good", "forced"})
+                    errors += int(classification in {"inaccuracy", "mistake", "blunder"})
             if board.turn == (game.player_color == "white") and feedback.get("classification") in ("Mistake", "Blunder"):
                 topic = "endgame" if len(board.piece_map()) <= 10 else "opening" if board.fullmove_number <= 10 else "middlegame"
                 best_uci = (feedback.get("best") or {}).get("uci")
@@ -93,6 +102,15 @@ def progress_data(db: Session, user: User) -> dict:
                 mistakes[topic] += 1
             board.push_uci(move["uci"])
         games_played += bool(game.moves)
+        if assessed:
+            game_performance.append({
+                "game_id": game.id,
+                "date": game.created_at.date().isoformat(),
+                "assessed_moves": assessed,
+                "sound_moves": sound,
+                "errors": errors,
+                "sound_rate": round(sound / assessed, 3),
+            })
     due = db.scalars(select(LearningProgress).where(LearningProgress.user_id == user.id, LearningProgress.due_at <= now())).all()
     exercise_ids = [exercise_id for exercise_id, count in failures.items() if count >= 2]
     repeated = [{"exercise_id": exercise.id, "topic": exercise.category, "title": exercise.data["title"],
@@ -122,7 +140,8 @@ def progress_data(db: Session, user: User) -> dict:
             "accuracy": round(correct / total, 3) if total else 0, "hints_used": hint_count,
             "topics": list(topics.values()), "recommendations": recommendations, "due_reviews": len(due),
             "game_mistakes": dict(mistakes), "repeated_mistakes": repeated,
-            "timeline": [{"date": date, **v} for date, v in sorted(timeline.items())], **learning}
+            "timeline": [{"date": date, **v} for date, v in sorted(timeline.items())],
+            "game_performance": sorted(game_performance, key=lambda item: item["date"])[-20:], **learning}
 
 
 def learning_observations(db: Session, user: User, attempts: list, calculations: list, games: list) -> dict:

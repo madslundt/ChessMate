@@ -1,0 +1,63 @@
+.voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px 10px;
+}
+.voice-control-button,
+.voice-submit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.voice-control-button:disabled,
+.voice-submit-button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+.voice-control-button.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.voice-submit-button {
+  border-color: var(--accent);
+}
+.voice-control-note,
+.voice-control-error {
+  color: var(--muted);
+  font-size: 11px;
+}
+.voice-control-error {
+  color: var(--danger, #b42318);
+}
+.voice-transcript {
+  flex: 1 0 100%;
+  min-width: 0;
+  border-left: 2px solid var(--accent);
+  padding: 2px 0 2px 9px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.voice-transcript span {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 10px;
+  font-weight: 650;
+}
+.voice-transcript p {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}

@@ -34,6 +34,21 @@ class LlmConnection(Base):
     verify_tls: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
 
 
+class SpeechSettings(Base):
+    __tablename__ = "speech_settings"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    stt_mode: Mapped[str] = mapped_column(String(10), default="browser", server_default="browser")
+    stt_base_url: Mapped[str] = mapped_column(String(2000), default="")
+    stt_model: Mapped[str] = mapped_column(String(200), default="")
+    stt_api_key: Mapped[str] = mapped_column(Text, default="")
+    tts_mode: Mapped[str] = mapped_column(String(10), default="browser", server_default="browser")
+    tts_base_url: Mapped[str] = mapped_column(String(2000), default="")
+    tts_model: Mapped[str] = mapped_column(String(200), default="")
+    tts_voice: Mapped[str] = mapped_column(String(200), default="alloy", server_default="alloy")
+    tts_api_key: Mapped[str] = mapped_column(Text, default="")
+    verify_tls: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+
+
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)

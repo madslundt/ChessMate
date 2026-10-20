@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useCoachSession } from './useCoachSession';
 import { ChartNoAxesColumnIncreasing, Lightbulb, MessageCircle, Send, Sparkles } from 'lucide-react';
 import { useT } from './i18n';
@@ -8,6 +9,9 @@ import { HintCard } from './HintCard';
 import { ConfidenceBadge } from './ConfidenceBadge';
 import { ErrorNotice, Spinner } from './components';
 import { GameReview } from './GameReview';
+import { VoiceControls } from './VoiceControls';
+import { api } from './api';
+import { transcribeAudio, synthesizeSpeech, type SpeechSettings } from './speechClient';
 import { VisualExplanation } from './VisualExplanation';
 import { ExplanationText } from './ExplanationText';
 import { ConsequenceComparison } from './ConsequenceComparison';
@@ -137,6 +141,12 @@ export function CoachPanel({
   analysis,
 }: Props) {
   const t = useT();
+  const speechSettings = useQuery({
+    queryKey: ['speech-settings'],
+    queryFn: () => api<SpeechSettings>('/settings/speech'),
+    staleTime: 30000,
+    retry: false,
+  });
   const [tab, setTab] = useState<'coach' | 'moves' | 'review'>(reviewMode ? 'review' : 'coach');
   const { messages, question, setQuestion, busy, analyzing, showCandidates, hintLevel, hint, hintMove, hintVisual, calculating, setCalculating, error, setError, scroll, compare, requestHint, send, cancelAnalysis, teachingMode, setTeachingMode, state } = useCoachSession({ fen, game, preferences, exploring, reviewMode, tab, positionPending, onAnalysis });
   const feedbackPly = game?.moves.slice(0, ply).map((move) => !!move.feedback).lastIndexOf(true) ?? -1;
@@ -378,6 +388,18 @@ export function CoachPanel({
                 <Send size={19} />
               </button>
             </form>
+            <VoiceControls
+              question={question}
+              setQuestion={setQuestion}
+              onSubmit={(value) => void send(value)}
+              disabled={positionPending || busy}
+              latestAssistantText={[...messages].reverse().find((message) => message.role === 'assistant')?.content}
+              language={preferences.coach_language}
+              sttMode={speechSettings.data?.stt_mode || 'browser'}
+              ttsMode={speechSettings.data?.tts_mode || 'browser'}
+              onServerTranscribe={transcribeAudio}
+              onServerSpeak={(text) => synthesizeSpeech(text, preferences.coach_language)}
+            />
           </>
         )}
       </div>

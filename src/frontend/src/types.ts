@@ -197,6 +197,14 @@ export interface Topic {
   trend?: "improving" | "declining" | "steady";
 }
 export interface Progress {
+  game_performance?: {
+    game_id: string;
+    date: string;
+    assessed_moves: number;
+    sound_moves: number;
+    errors: number;
+    sound_rate: number;
+  }[];
   calculation?: {
     attempts: number;
     assessed_plies: number;

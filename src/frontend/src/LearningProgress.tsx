@@ -7,6 +7,8 @@ import { LocaleContext, useT, type TranslationKey } from './i18n';
 import { defaults, type Preferences, type Progress } from './types';
 import { CalculationHistory } from './CalculationHistory';
 import { learnPath, Link, navigate } from './navigation';
+import { StudyPlan } from './StudyPlan';
+import { ImprovementTrend } from './ImprovementTrend';
 
 export function ProgressPage({
   onLearn,
@@ -23,6 +25,15 @@ export function ProgressPage({
       queryFn: () => api<Progress>('/progress'),
     }),
     p = progress.data;
+  async function startPlanSession(kind: string, minutes: number) {
+    try {
+      const session = await api<{ id: string; exercises: { id: string }[] }>('/training/sessions', { kind, minutes });
+      if (session.exercises[0]) navigate(learnPath(kind === 'mixed' || kind === 'review' ? 'all' : kind, session.exercises[0].id, session.id));
+      else onLearn();
+    } catch {
+      onLearn();
+    }
+  }
   return (
     <>
       <PageHeading
@@ -152,6 +163,13 @@ export function ProgressPage({
                   ))}
               </section>
             )}
+            <StudyPlan
+              topics={p.topics}
+              recommendations={p.recommendations}
+              dueReviews={p.due_reviews || 0}
+              onStart={(kind, minutes) => void startPlanSession(kind, minutes)}
+            />
+            <ImprovementTrend games={p.game_performance || []} />
             <div className="progress-layout">
               <section className="panel topic-panel">
                 <h2>{t('topics')}</h2>

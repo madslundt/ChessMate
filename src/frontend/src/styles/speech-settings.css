@@ -1,0 +1,94 @@
+.speech-settings-fields {
+  min-width: 0;
+}
+.speech-settings-fields > form {
+  min-width: 0;
+}
+.speech-settings fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.speech-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.speech-provider {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 13px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.speech-provider h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.speech-provider .field {
+  min-width: 0;
+  margin: 0;
+}
+.speech-provider .field input,
+.speech-provider .field select,
+.speech-security .field select {
+  width: 100%;
+  min-width: 0;
+}
+.speech-provider .field small,
+.speech-security .field small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.speech-security {
+  margin-top: 16px;
+  max-width: 520px;
+}
+.speech-security .field {
+  margin: 0;
+}
+.speech-security-warning {
+  color: var(--danger, #b42318) !important;
+  font-size: 12px;
+}
+.speech-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 18px;
+}
+.speech-settings-actions > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.speech-settings-actions .primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+@media (max-width: 700px) {
+  .speech-provider-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .speech-provider {
+    padding: 14px;
+  }
+  .speech-settings-actions {
+    justify-content: stretch;
+  }
+  .speech-settings-actions .primary-button {
+    width: 100%;
+  }
+}

@@ -1,0 +1,106 @@
+.active-recall {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.active-recall-heading,
+.active-recall-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.active-recall-kicker {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.active-recall-heading h3 {
+  margin: 5px 0 6px;
+  font-size: 17px;
+}
+.active-recall-heading p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.active-recall-ply {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: 20px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.active-recall-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.active-recall-fields label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+.active-recall-fields textarea {
+  width: 100%;
+  min-height: 66px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 9px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+.active-recall-fields textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.active-recall-fields textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+.active-recall-footer {
+  align-items: center;
+}
+.active-recall-saved {
+  color: var(--muted);
+  font-size: 11px;
+}
+.active-recall-feedback {
+  border-top: 1px solid var(--line);
+  padding-top: 15px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.active-recall-feedback h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.active-recall-feedback > :last-child {
+  margin-bottom: 0;
+}
+@media (max-width: 700px) {
+  .active-recall-fields {
+    grid-template-columns: 1fr;
+  }
+  .active-recall-heading h3 {
+    font-size: 15px;
+  }
+}
