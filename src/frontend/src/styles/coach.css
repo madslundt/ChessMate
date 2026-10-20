@@ -170,6 +170,47 @@
 .feedback-note.blunder {
   border-color: #bb7461;
 }
+.move-feedback-entry {
+  scroll-margin-top: 14px;
+  border-left-width: 3px;
+  padding: 12px 14px;
+}
+.move-feedback-entry.white {
+  background: color-mix(in srgb, var(--surface) 88%, #fff 12%);
+}
+.move-feedback-entry.black {
+  background: color-mix(in srgb, var(--soft) 84%, var(--ink) 16%);
+}
+.move-feedback-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 9px;
+  font-size: 11px;
+}
+.move-feedback-turn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+.move-feedback-color-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--muted);
+  background: #fff;
+}
+.move-feedback-entry.black .move-feedback-color-dot {
+  background: #252525;
+  border-color: #252525;
+}
+.move-feedback-san {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
 .feedback-note .takeaway {
   margin-top: 8px;
   font-style: italic;

@@ -119,7 +119,7 @@ export function useCoachSession({
       top: scroll.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages, busy, hint]);
+  }, [messages, busy, hint, game?.revision, fen]);
   const budget = {
     time_ms: preferences.analysis_time_ms,
     depth: preferences.analysis_depth,

@@ -14,6 +14,84 @@ import { ConsequenceComparison } from './ConsequenceComparison';
 import { SocraticProgress } from './SocraticProgress';
 const CalculationPractice = lazy(() => import('./CalculationPractice').then((module) => ({ default: module.CalculationPractice })));
 import type { Analysis, Candidate, Color, Game, Preferences, VisualInsight } from './types';
+function MoveFeedbackHistory({
+  game,
+  preferences,
+  exploring,
+  feedbackPly,
+  orientation,
+  onVisual,
+  onPreview,
+  onRetry,
+}: {
+  game: Game | null;
+  preferences: Preferences;
+  exploring: boolean;
+  feedbackPly: number;
+  orientation: Color;
+  onVisual: (insight: VisualInsight) => void;
+  onPreview: (candidate: Candidate, baseFen?: string, rootPly?: number) => void;
+  onRetry: (baseFen: string, rootPly?: number) => void;
+}) {
+  const t = useT();
+  if (!game || exploring) return null;
+  return (
+    <>
+      {game.moves.map((move, index) => {
+        const feedback = move.feedback;
+        const moveClass = feedback?.classification?.toLowerCase();
+        const moveFeedbackVisible = preferences.feedback !== 'none' &&
+          ((!['mistakes'].includes(preferences.feedback) && preferences.feedback_frequency !== 'mistakes') ||
+            ['mistake', 'blunder', 'inaccuracy'].includes(moveClass || ''));
+        if (!feedback || !moveFeedbackVisible) return null;
+        const initialTurn = game.initial_fen.split(' ')[1];
+        const moveColor = move.color || (feedback.actor_color as Color | undefined) ||
+          (initialTurn === 'b'
+            ? (index % 2 === 0 ? 'black' : 'white')
+            : (index % 2 === 0 ? 'white' : 'black'));
+        const moveNumber = Number(game.initial_fen.split(' ')[5] || 1) +
+          Math.floor((index + (initialTurn === 'b' ? 1 : 0)) / 2);
+        const isCurrentFeedback = index === feedbackPly;
+        const moveBase = move.before_fen || (index === 0 ? game.initial_fen : game.moves[index - 1]?.fen);
+        return (
+          <div className={`feedback-note move-feedback-entry ${moveColor} ${moveClass || ''}`} data-testid="move-feedback" key={`${index}-${move.uci}`}>
+            <div className="move-feedback-heading">
+              <span className="move-feedback-turn">
+                <span className="move-feedback-color-dot" aria-hidden="true" />
+                <strong>{moveColor === 'white' ? t('white') : t('black')}</strong>
+              </span>
+              <span className="move-feedback-san">{moveNumber}{moveColor === 'white' ? '.' : '...'} {move.san}</span>
+            </div>
+            <div>
+              <Sparkles size={16} />
+              <strong>
+                {moveClass && ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder', 'forced', 'uncertain'].includes(moveClass)
+                  ? t(moveClass as 'good')
+                  : t('unclassified')}
+              </strong>
+            </div>
+            {feedback.actor === 'opponent' && <small>{t('opponentMove')}</small>}
+            <ConfidenceBadge mode={feedback.analysis_mode} confidence={feedback.confidence} />
+            <ExplanationText mode={preferences.explanation_mode}>
+              <p>{feedback.text || feedback.explanation || feedback.assessment}</p>
+              {feedback.consequence && feedback.consequence !== feedback.text && <p>{feedback.consequence}</p>}
+            </ExplanationText>
+            {isCurrentFeedback && preferences.explanation_mode !== 'text' && <VisualExplanation coaching={feedback} onVisual={onVisual} onPreview={onPreview} />}
+            {isCurrentFeedback && moveBase && <ConsequenceComparison feedback={feedback} base={moveBase} preferences={preferences} orientation={orientation} onPreview={onPreview} />}
+            {isCurrentFeedback && moveBase && <div className="visual-explanation-actions">
+              {feedback.played && <button className="text-button" onClick={() => onPreview(feedback.played!, moveBase, index)}>{t('watchConsequence')}</button>}
+              {feedback.best && !preferences.hide_best_moves && <button className="text-button" onClick={() => onPreview(feedback.best!, moveBase, index)}>{t('watchAlternative')}</button>}
+              <button className="text-button" onClick={() => onRetry(moveBase, index)}>{t('retryPosition')}</button>
+            </div>}
+            {isCurrentFeedback && preferences.feedback === 'detailed' && feedback.takeaway && (
+              <p className="takeaway">{feedback.takeaway}</p>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
 interface Props {
   orientation: Color;
   onPickSquare: (answer: (square: string) => void) => void;
@@ -64,7 +142,6 @@ export function CoachPanel({
   const feedbackPly = game?.moves.slice(0, ply).map((move) => !!move.feedback).lastIndexOf(true) ?? -1;
   const feedbackMove = game?.moves[feedbackPly];
   const latest = feedbackMove?.feedback;
-  const feedbackBase = feedbackMove?.before_fen || (feedbackPly === 0 ? game?.initial_fen : game?.moves[feedbackPly - 1]?.fen);
   useEffect(() => {
     const hintGuide = hintVisual?.insights?.find((item) => item.id === 'hint-guide' && item.fen === fen);
     if (hintGuide) { onVisual(hintGuide); return; }
@@ -243,32 +320,6 @@ export function CoachPanel({
                   <p>{guidedText}</p>
                 </div>
               )}
-              {latest && feedbackVisible && !exploring && (
-                <div className={`feedback-note ${cls || ''}`} data-testid="move-feedback">
-                  {latest.actor === 'opponent' && <small>{t('opponentMove')}</small>}
-                  <div>
-                    <Sparkles size={16} />
-                    <strong>
-                      {cls && ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder', 'forced', 'uncertain'].includes(cls)
-                        ? t(cls as 'good')
-                        : t('unclassified')}
-                    </strong>
-                  </div>
-                  <ConfidenceBadge mode={latest.analysis_mode} confidence={latest.confidence} />
-                  <ExplanationText mode={preferences.explanation_mode}><p>{latest.text || latest.explanation || latest.assessment}</p>
-                  {latest.consequence && latest.consequence !== latest.text && <p>{latest.consequence}</p>}</ExplanationText>
-                  {preferences.explanation_mode !== 'text' && <VisualExplanation coaching={latest} onVisual={onVisual} onPreview={onPreview} />}
-                  {feedbackBase && <ConsequenceComparison feedback={latest} base={feedbackBase} preferences={preferences} orientation={orientation} onPreview={onPreview} />}
-                  {feedbackBase && <div className="visual-explanation-actions">
-                    {latest.played && <button className="text-button" onClick={() => onPreview(latest.played!, feedbackBase, feedbackPly)}>{t('watchConsequence')}</button>}
-                    {latest.best && !preferences.hide_best_moves && <button className="text-button" onClick={() => onPreview(latest.best!, feedbackBase, feedbackPly)}>{t('watchAlternative')}</button>}
-                    <button className="text-button" onClick={() => onRetry(feedbackBase, feedbackPly)}>{t('retryPosition')}</button>
-                  </div>}
-                  {preferences.feedback === 'detailed' && latest.takeaway && (
-                    <p className="takeaway">{latest.takeaway}</p>
-                  )}
-                </div>
-              )}
               <div className="coach-actions">
                 <button className="outline-button" onClick={requestHint} disabled={positionPending || analyzing || busy || hintLevel >= 4}>
                   <Lightbulb size={20} />
@@ -290,6 +341,7 @@ export function CoachPanel({
               {hint && <HintCard hint={hint} hintLevel={hintLevel} hintMove={hintMove} hintVisual={hintVisual} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onVisual={onVisual} onPreview={onPreview} />}
               {showCandidates && analysis?.fen === fen && <CandidateList orientation={orientation} analysis={analysis} fen={fen} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onPreview={onPreview} onVisual={onVisual} />}
               <CoachMessages messages={messages} busy={busy || positionPending} fen={fen} preferences={preferences} onVisual={onVisual} onPreview={onPreview} onResolve={(uci) => void send(preferences.coach_language === 'da' ? `Hvad hvis jeg spiller ${uci}?` : `What if I play ${uci}?`)} />
+              <MoveFeedbackHistory game={game} preferences={preferences} exploring={exploring} feedbackPly={feedbackPly} orientation={orientation} onVisual={onVisual} onPreview={onPreview} onRetry={onRetry} />
               <ErrorNotice error={error} onDismiss={() => setError(null)} />
             </div>
             <form

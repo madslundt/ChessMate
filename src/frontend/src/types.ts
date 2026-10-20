@@ -83,6 +83,7 @@ export interface MoveRecord {
   uci: string;
   san: string;
   fen: string;
+  color?: Color;
   feedback?: Feedback | null;
   actor?: string;
   before_fen?: string;
