@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+.venv
+.git
+**/.env
+**/.env.*
+**/__pycache__
+**/.pytest_cache
+**/*.sqlite*
+**/*.db
+test-results
+playwright-report
+tests
+
+**/*.tsbuildinfo

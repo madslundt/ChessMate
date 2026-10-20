@@ -1,0 +1,89 @@
+name: chessmate
+
+services:
+  db:
+    image: postgres:17-alpine
+    user: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chessmate
+      POSTGRES_DB: chessmate
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in config/.env}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chessmate -d chessmate"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: config/Dockerfile.backend
+    environment: &backend_environment
+      DATABASE_URL: postgresql+psycopg://chessmate:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in config/.env}@db:5432/chessmate
+      STOCKFISH_PATH: /usr/games/stockfish
+      ENGINE_THREADS: ${ENGINE_THREADS:-1}
+      ENGINE_HASH_MB: ${ENGINE_HASH_MB:-64}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-35}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-600}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:8080}
+    command: ["alembic", "-c", "src/backend/alembic.ini", "upgrade", "head"]
+    depends_on:
+      db: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  backend:
+    build:
+      context: ..
+      dockerfile: config/Dockerfile.backend
+    restart: unless-stopped
+    environment: *backend_environment
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    read_only: true
+    tmpfs: ["/tmp:size=64m,mode=1777"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=4)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: config/Dockerfile.frontend
+    restart: unless-stopped
+    depends_on:
+      backend: { condition: service_healthy }
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-8080}:8080"
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+volumes:
+  database:

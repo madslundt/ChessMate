@@ -1,0 +1,80 @@
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *:before,
+  *:after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+.repertoire {
+  border-top: 1px solid var(--line);
+  padding-top: 30px;
+  margin-top: 35px;
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+.section-heading h2 {
+  margin: 0;
+  font-size: 27px;
+}
+.repertoire > p {
+  font-size: 12px;
+  margin: 15px 0 25px;
+}
+.repertoire-line {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+.repertoire-line > div {
+  flex: 1;
+  min-width: 0;
+}
+.repertoire-line strong {
+  font-size: 13px;
+  display: block;
+  margin-bottom: 8px;
+}
+.repertoire-line code {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.repertoire-line > .text-button {
+  font-size: 10px;
+}
+.repertoire-line > .icon-button {
+  border: 0;
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .section-heading h2 {
+    font-size: 23px;
+  }
+  .section-heading .outline-button {
+    font-size: 10px;
+    padding: 8px 10px;
+    min-height: 35px;
+  }
+  .repertoire-line {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .repertoire-line > div {
+    min-width: calc(100% - 40px);
+  }
+  .repertoire-line > .text-button {
+    margin-left: 30px;
+  }
+  .repertoire-line > .icon-button {
+    margin-left: auto;
+  }
+}

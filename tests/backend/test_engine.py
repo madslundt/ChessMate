@@ -1,0 +1,50 @@
+import chess
+import pytest
+
+from src.backend.engine import classify_move, engine_service, score_number
+
+
+def candidate(cp=None, mate=None, uci="e2e4"):
+    return {"uci": uci, "cp": cp, "mate": mate}
+
+
+def test_classification_and_forced_and_shallow():
+    assert classify_move(candidate(70), candidate(-250, uci="a2a3"), depth=15)["classification"] == "Blunder"
+    assert classify_move(candidate(20), candidate(15, uci="d2d4"), depth=15)["classification"] == "Excellent"
+    assert classify_move(candidate(20), candidate(-200), forced=True, depth=15)["classification"] == "Forced"
+    assert classify_move(candidate(20), candidate(-200), depth=5)["classification"] == "Uncertain"
+
+
+def test_mate_correct_sign_and_equivalent_mates():
+    assert score_number(candidate(mate=3)) > score_number(candidate(2000))
+    assert score_number(candidate(mate=-3)) < score_number(candidate(-2000))
+    assert score_number(candidate(mate=0)) < 0
+    assert classify_move(candidate(mate=2), candidate(mate=5), depth=15)["classification"] == "Excellent"
+    assert classify_move(candidate(0), candidate(mate=-2), depth=15)["classification"] == "Blunder"
+
+
+def test_real_multipv_and_correct_black_perspective():
+    if not engine_service.path(): pytest.skip("Stockfish not installed")
+    board = chess.Board()
+    board.push_san("e4")
+    evidence = engine_service.analyze(board, time_ms=120)
+    assert len(evidence["candidates"]) == 3
+    for move in evidence["candidates"]:
+        assert chess.Move.from_uci(move["uci"]) in board.legal_moves
+        assert move["white_cp"] == -move["cp"]
+        variation = board.copy()
+        for san in move["pv"]: variation.push_san(san)
+
+
+def test_specific_candidate_starts_from_identical_root():
+    if not engine_service.path(): pytest.skip("Stockfish not installed")
+    board = chess.Board()
+    evidence = engine_service.grade(board, board.parse_san("Nf3"), time_ms=100)
+    assert evidence["fen"] == board.fen()
+    assert evidence["played"]["uci"] == "g1f3"
+    assert evidence["played"]["pv"][0] == "Nf3"
+    assert board.fen() == chess.STARTING_FEN
+
+
+def test_equivalent_decisively_winning_positions_are_not_blunders():
+    assert classify_move(candidate(2000), candidate(1500, uci="d2d4"), depth=15)["classification"] == "Good"

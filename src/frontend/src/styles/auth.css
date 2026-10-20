@@ -1,0 +1,116 @@
+.auth-page {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.auth-story {
+  padding: 50px 65px;
+  background: #e8eddf;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 100dvh;
+  color: #20372b;
+}
+.auth-story > .brand {
+  color: #182b22;
+}
+.auth-story > div {
+  padding: 40px 0;
+  max-width: 500px;
+}
+.auth-story h1 {
+  font-size: 58px;
+  margin: 25px 0 20px;
+  line-height: 1.1;
+}
+.auth-story p {
+  color: #647368;
+  font-size: 17px;
+  max-width: 310px;
+}
+.auth-story > small {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: #526a5c;
+}
+:root[data-theme='dark'] .auth-story {
+  background: var(--soft);
+  color: var(--ink);
+}
+:root[data-theme='dark'] .auth-story > .brand {
+  color: var(--ink);
+}
+:root[data-theme='dark'] .auth-story p,
+:root[data-theme='dark'] .auth-story > small {
+  color: var(--muted);
+}
+.auth-board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  width: 190px;
+  height: 190px;
+  margin-top: 30px;
+  transform: rotate(-7deg);
+  border-radius: 7px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px #18352415;
+}
+.auth-board > span {
+  background: #f5f5e7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Georgia, serif;
+  font-size: 43px;
+  color: #21352a;
+}
+.auth-board > span.dark-square {
+  background: #91a48a;
+}
+.auth-form-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 45px;
+}
+.auth-form {
+  width: 100%;
+  max-width: 350px;
+}
+.auth-knight {
+  font:
+    45px Georgia,
+    serif;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 20px;
+}
+.auth-form h2 {
+  font-size: 35px;
+  margin: 0 0 32px;
+}
+.auth-form > .primary-button {
+  width: 100%;
+  margin-top: 9px;
+  min-height: 45px;
+}
+.auth-switch {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 25px;
+  text-align: center;
+}
+.auth-switch .text-button {
+  margin-left: 6px;
+}
+.app-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100dvh;
+  gap: 20px;
+}

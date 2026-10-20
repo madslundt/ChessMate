@@ -1,0 +1,166 @@
+@media (min-width: 1650px) {
+  .main-content {
+    padding: 40px 45px;
+  }
+  .game-layout {
+    grid-template-columns: minmax(0, 1fr) 385px;
+  }
+  .coach-scroll {
+    padding: 30px;
+  }
+  .board-panel {
+    padding: 24px;
+  }
+  .coach-intro h2 {
+    font-size: 31px;
+  }
+}
+@media (max-width: 1200px) {
+  .sidebar {
+    width: 192px;
+    padding-left: 13px;
+    padding-right: 13px;
+  }
+  .sidebar .brand {
+    font-size: 25px;
+    margin-left: 4px;
+  }
+  .brand-mark {
+    font-size: 37px;
+  }
+  .nav-item {
+    padding: 14px 13px;
+    gap: 12px;
+  }
+  .main-content {
+    margin-left: 192px;
+    width: calc(100% - 192px);
+    padding: 26px;
+  }
+  .game-layout {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 16px;
+  }
+  h1 {
+    font-size: 34px;
+  }
+  .board-panel {
+    padding: 17px 17px 13px;
+  }
+  .coach-scroll {
+    padding: 22px 20px;
+  }
+  .coach-intro h2 {
+    font-size: 25px;
+  }
+  .coach-intro h3 {
+    font-size: 16px;
+  }
+  .coach-intro p {
+    font-size: 13px;
+  }
+  .game-mode {
+    font-size: 10px;
+    max-width: 100px;
+    line-height: 1.6;
+  }
+  .game-mode svg {
+    display: none;
+  }
+  .game-utilities {
+    align-items: flex-start;
+    gap: 20px;
+  }
+  .game-utilities > div {
+    gap: 13px;
+  }
+  .game-utilities > span {
+    white-space: nowrap;
+  }
+  .board-navigation {
+    gap: 3px;
+  }
+  .board-navigation .icon-button {
+    min-width: 29px;
+    padding: 5px;
+  }
+  .game-layout .avatar {
+    width: 35px;
+    height: 35px;
+    border-radius: 13px;
+  }
+  .settings-section {
+    grid-template-columns: 190px 1fr;
+  }
+  .practice-band {
+    flex-wrap: wrap;
+  }
+  .practice-actions {
+    max-width: none;
+    justify-content: flex-start;
+    margin: 0 0 0 90px;
+  }
+  .progress-layout {
+    gap: 23px;
+  }
+  .auth-story {
+    padding: 40px;
+  }
+  .auth-story h1 {
+    font-size: 50px;
+  }
+}
+@media (max-width: 1050px) and (min-width: 761px) {
+  .sidebar {
+    width: 76px;
+    padding: 25px 12px;
+  }
+  .sidebar .brand {
+    font-size: 0;
+    margin: 4px auto 30px;
+  }
+  .sidebar .brand-mark {
+    font-size: 41px;
+  }
+  .nav-item {
+    padding: 16px;
+    justify-content: center;
+  }
+  .nav-item span,
+  .nav-chevron,
+  .privacy-note,
+  .logout {
+    display: none;
+  }
+  .main-content {
+    margin-left: 76px;
+    width: calc(100% - 76px);
+    padding: 25px;
+  }
+  .game-layout {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+}
+
+@media (min-width: 761px) and (max-width: 900px) {
+  .game-layout {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .board-area > .board-shell {
+    max-width: min(100%, 600px);
+  }
+  .coach-panel {
+    min-height: 480px;
+    max-height: 660px;
+  }
+  .coach-scroll {
+    padding: 26px;
+  }
+  .exercise-layout {
+    grid-template-columns: 1fr;
+  }
+  .exercise-coach {
+    position: static;
+  }
+}

@@ -1,0 +1,110 @@
+.explore-banner {
+  border: 1px solid #a7bdb5;
+  background: var(--soft);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 17px;
+  margin-bottom: 18px;
+  color: var(--accent);
+}
+.explore-banner > div {
+  flex: 1;
+}
+.explore-banner strong {
+  display: block;
+  font-size: 13px;
+}
+.explore-banner span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.explore-banner button {
+  font-size: 11px;
+  padding: 8px 11px;
+  min-height: 35px;
+}
+.is-exploring {
+  border-color: #8eac9e;
+  box-shadow: 0 0 0 2px #8eac9e20;
+}
+.explore-actions {
+  display: flex;
+  gap: 6px;
+}
+.explore-actions .primary-button {
+  font-size: 11px;
+  padding: 7px 10px;
+  min-height: 35px;
+}
+.explore-line {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 12px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.explore-line > span {
+  overflow-wrap: anywhere;
+}
+.evaluation-bar {
+  width: 12px;
+  flex-shrink: 0;
+  background: #27362b;
+  border: 1px solid #667566;
+  position: relative;
+  overflow: hidden;
+  border-radius: 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.evaluation-bar > div {
+  background: #f2f4e7;
+  transition: height 0.3s;
+}
+.evaluation-bar > span {
+  position: absolute;
+  left: 0;
+  bottom: 5px;
+  font-size: 7px;
+  color: #1a2920;
+  writing-mode: vertical-lr;
+}
+.promotion-backdrop {
+  position: absolute;
+  inset: 0;
+  background: #16272066;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9;
+  backdrop-filter: blur(3px);
+}
+.promotion-menu {
+  background: var(--surface);
+  padding: 20px;
+  border-radius: 10px;
+  text-align: center;
+}
+.promotion-menu h3 {
+  font-size: 15px;
+}
+.promotion-menu > div {
+  display: flex;
+  gap: 8px;
+}
+.promotion-menu button {
+  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 34px;
+  min-width: 40px;
+  color: var(--ink);
+}

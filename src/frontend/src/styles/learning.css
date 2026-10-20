@@ -1,0 +1,214 @@
+.practice-band {
+  display: flex;
+  align-items: center;
+  gap: 23px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  padding: 25px 27px;
+  border-radius: 12px;
+  margin: 8px 0 30px;
+}
+.practice-symbol {
+  width: 68px;
+  height: 68px;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--accent);
+}
+.practice-band h2 {
+  font-size: 25px;
+  margin-bottom: 5px;
+}
+.practice-band p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.practice-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  max-width: 400px;
+}
+.practice-actions .primary-button,
+.practice-actions .outline-button {
+  font-size: 11px;
+}
+.practice-actions .text-button {
+  font-size: 10px;
+}
+.category-tabs {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 10px;
+  padding-bottom: 12px;
+  overflow: auto;
+  scrollbar-width: none;
+}
+.category-tabs button {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  padding: 9px 15px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.category-tabs button.selected {
+  background: var(--accent);
+  color: var(--surface);
+}
+.lesson-list {
+  margin-top: 4px;
+}
+.lesson-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 22px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  width: 100%;
+}
+.lesson-row:hover {
+  background: var(--soft);
+}
+.lesson-number {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.lesson-icon {
+  width: 43px;
+  height: 43px;
+  background: var(--soft);
+  color: var(--accent);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lesson-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.lesson-copy small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.lesson-copy strong {
+  font-size: 15px;
+  font-weight: 550;
+}
+.lesson-copy > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.back-button {
+  margin-bottom: 20px;
+}
+.exercise-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 1fr);
+  gap: 24px;
+}
+.exercise-layout .board-shell {
+  max-width: 650px;
+  margin: auto;
+}
+.exercise-coach {
+  padding: 35px;
+  align-self: start;
+  position: sticky;
+  top: 25px;
+}
+.exercise-coach h2 {
+  font-size: 31px;
+}
+.objective-text {
+  font-size: 19px;
+  line-height: 1.6;
+}
+.exercise-feedback {
+  border-top: 1px solid var(--line);
+  padding: 24px 0;
+  margin-top: 25px;
+}
+.exercise-feedback.correct > svg {
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.exercise-feedback p {
+  font-size: 13px;
+  color: var(--muted);
+}
+.exercise-feedback code {
+  display: block;
+  font-size: 14px;
+  line-height: 1.8;
+  margin: 8px 0;
+}
+.exercise-feedback small {
+  color: var(--muted);
+}
+.exercise-coach > .outline-button,
+.exercise-coach > .primary-button {
+  width: 100%;
+  margin-top: 15px;
+}
+.practice-more {
+  position: relative;
+  font-size: 11px;
+  color: var(--accent);
+  align-self: center;
+}
+.practice-more summary {
+  cursor: pointer;
+  padding: 6px;
+}
+.practice-more > div {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 5;
+  width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px;
+  box-shadow: 0 9px 30px #17281f15;
+}
+.practice-more button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 11px;
+  color: var(--ink);
+  font-size: 11px;
+  text-align: left;
+}
+.practice-more button:hover {
+  background: var(--soft);
+}
+.topic-practice {
+  margin: 15px 10px 5px;
+}

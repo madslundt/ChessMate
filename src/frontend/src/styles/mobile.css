@@ -1,0 +1,398 @@
+@media (max-width: 760px) {
+  h1 {
+    font-size: 32px;
+    line-height: 1.15;
+  }
+  .app-shell {
+    display: block;
+  }
+  .sidebar {
+    width: 100%;
+    height: auto;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+    padding: 5px 7px max(7px, env(safe-area-inset-bottom));
+    background: var(--surface);
+    z-index: 20;
+  }
+  .sidebar > .brand,
+  .sidebar-bottom {
+    display: none;
+  }
+  .sidebar nav {
+    flex-direction: row;
+    justify-content: space-around;
+    gap: 0;
+  }
+  .nav-item {
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    padding: 8px 3px;
+    min-height: 49px;
+    border-radius: 7px;
+    font-size: 9px;
+    flex: 1;
+    min-width: 0;
+  }
+  .nav-item svg {
+    width: 19px;
+    height: 19px;
+  }
+  .nav-item.active {
+    background: var(--soft);
+    color: var(--accent);
+  }
+  .nav-item .nav-chevron {
+    display: none;
+  }
+  .nav-item > span {
+    white-space: nowrap;
+  }
+  .main-content {
+    margin-left: 0;
+    width: 100%;
+    padding: 25px 16px 105px;
+  }
+  .page-heading {
+    padding-left: 0;
+    gap: 14px;
+    align-items: flex-start;
+    margin-bottom: 23px;
+  }
+  .page-heading p {
+    font-size: 12px;
+    line-height: 1.6;
+    max-width: 260px;
+  }
+  .page-heading > .primary-button {
+    font-size: 0;
+    min-width: 37px;
+    min-height: 37px;
+    padding: 9px;
+    gap: 0;
+    margin-top: 3px;
+  }
+  .page-heading > .primary-button svg {
+    width: 19px;
+  }
+  .game-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .board-panel {
+    padding: 13px 12px 12px;
+  }
+  .board-area > .board-shell {
+    max-width: 100%;
+  }
+  .player-row {
+    gap: 10px;
+    margin-bottom: 12px;
+    min-height: 38px;
+  }
+  .player-row strong {
+    font-size: 12px;
+  }
+  .player-row small {
+    font-size: 10px;
+  }
+  .game-mode {
+    font-size: 10px;
+    max-width: none;
+  }
+  .game-mode svg {
+    display: block;
+    width: 15px;
+  }
+  .game-layout .avatar {
+    width: 33px;
+    height: 33px;
+    border-radius: 12px;
+  }
+  .game-layout .avatar svg {
+    width: 18px;
+  }
+  .player-bottom {
+    margin-top: 12px;
+  }
+  .board-navigation {
+    gap: 4px;
+  }
+  .board-navigation .icon-button {
+    min-height: 31px;
+    min-width: 28px;
+    padding: 5px;
+  }
+  .toolbar-divider {
+    margin: 0 3px;
+  }
+  .board-toolbar {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+  .turn-status {
+    font-size: 10px;
+  }
+  .board-toolbar .outline-button {
+    font-size: 10px;
+    padding: 7px 10px;
+    min-height: 32px;
+  }
+  .coach-panel {
+    min-height: 530px;
+    max-height: 720px;
+  }
+  .coach-scroll {
+    padding: 23px;
+  }
+  .coach-intro h2 {
+    font-size: 29px;
+  }
+  .coach-intro p {
+    font-size: 14px;
+  }
+  .coach-intro h3 {
+    font-size: 17px;
+  }
+  .panel-tabs button {
+    font-size: 12px;
+    padding: 16px;
+  }
+  .game-utilities {
+    flex-direction: column;
+    gap: 10px;
+    font-size: 10px;
+    padding: 15px 2px;
+  }
+  .game-utilities > div {
+    gap: 17px;
+  }
+  .explore-banner {
+    gap: 9px;
+    padding: 11px 12px;
+    flex-wrap: wrap;
+  }
+  .explore-banner > div {
+    flex: 1;
+    min-width: 180px;
+  }
+  .explore-banner strong {
+    font-size: 12px;
+  }
+  .explore-banner span {
+    font-size: 10px;
+  }
+  .explore-banner > .outline-button {
+    margin-left: 29px;
+  }
+  .explore-actions .primary-button {
+    font-size: 10px;
+  }
+  .settings-section {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 23px 0;
+  }
+  .settings-fields {
+    gap: 0 20px;
+  }
+  .settings-section h2 {
+    font-size: 27px;
+  }
+  .settings-section p {
+    margin-bottom: 0;
+  }
+  .settings-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .settings-footer .primary-button {
+    width: 100%;
+  }
+  .field {
+    font-size: 11px;
+  }
+  .toggle-row {
+    font-size: 11px;
+    line-height: 1.5;
+    gap: 12px;
+    min-height: 50px;
+  }
+  .auth-page {
+    display: block;
+  }
+  .auth-story {
+    padding: 24px 25px;
+    min-height: auto;
+  }
+  .auth-story > .brand {
+    font-size: 25px;
+  }
+  .auth-story > div {
+    display: none;
+  }
+  .auth-story h1 {
+    font-size: 38px;
+    margin: 0 0 15px;
+    max-width: 300px;
+  }
+  .auth-story p {
+    font-size: 13px;
+    max-width: 280px;
+    margin-bottom: 15px;
+  }
+  .auth-story > div > svg,
+  .auth-board,
+  .auth-story > small {
+    display: none;
+  }
+  .auth-form-wrap {
+    padding: 35px 26px;
+  }
+  .auth-knight {
+    display: none;
+  }
+  .auth-form h2 {
+    font-size: 29px;
+    margin-bottom: 24px;
+  }
+  .auth-form {
+    max-width: 420px;
+  }
+  .practice-band {
+    gap: 15px;
+    padding: 19px;
+  }
+  .practice-symbol {
+    width: 45px;
+    height: 45px;
+  }
+  .practice-symbol svg {
+    width: 24px;
+  }
+  .practice-band h2 {
+    font-size: 24px;
+  }
+  .practice-band p {
+    font-size: 11px;
+  }
+  .practice-actions {
+    margin: 5px 0 0;
+    width: 100%;
+    gap: 9px;
+  }
+  .practice-actions > button {
+    flex: 1;
+    min-width: 120px;
+    min-height: 40px;
+  }
+  .practice-actions .text-button {
+    justify-content: center;
+  }
+  .category-tabs {
+    margin-bottom: 0;
+  }
+  .category-tabs button {
+    padding: 8px 13px;
+    font-size: 11px;
+  }
+  .lesson-row {
+    gap: 12px;
+    padding: 20px 3px;
+  }
+  .lesson-icon {
+    display: none;
+  }
+  .lesson-number {
+    font-size: 10px;
+    min-width: 18px;
+  }
+  .lesson-copy strong {
+    font-size: 14px;
+  }
+  .lesson-copy > span {
+    font-size: 11px;
+  }
+  .lesson-row > svg {
+    width: 17px;
+    flex-shrink: 0;
+  }
+  .exercise-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .exercise-coach {
+    padding: 25px;
+    position: static;
+  }
+  .objective-text {
+    font-size: 18px;
+  }
+  .history-row {
+    padding: 18px 13px;
+    gap: 12px;
+  }
+  .history-piece {
+    font-size: 29px;
+    width: 30px;
+  }
+  .history-row strong {
+    font-size: 12px;
+  }
+  .history-row small {
+    font-size: 10px;
+  }
+  .history-resume {
+    display: none;
+  }
+  .history-result {
+    font-size: 10px;
+  }
+  .progress-stats {
+    grid-template-columns: 1fr 1fr;
+    gap: 0 25px;
+    margin: 23px 0;
+  }
+  .stat {
+    padding: 20px 0;
+    gap: 10px;
+  }
+  .stat > span {
+    font-size: 11px;
+  }
+  .stat > strong {
+    font-size: 37px;
+    margin-top: 0;
+  }
+  .progress-layout {
+    grid-template-columns: 1fr;
+  }
+  .topic-panel {
+    padding: 23px;
+  }
+  .practice-recommendations {
+    padding: 10px 5px;
+  }
+  .practice-recommendations > .primary-button {
+    width: 100%;
+  }
+  .timeline-panel {
+    padding: 20px;
+  }
+  .progress-timeline {
+    gap: 13px;
+    overflow: auto;
+  }
+  .modal {
+    padding: 22px;
+  }
+  .modal-heading h2 {
+    font-size: 25px;
+  }
+}

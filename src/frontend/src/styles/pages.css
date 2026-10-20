@@ -1,0 +1,251 @@
+.history-list {
+  overflow: hidden;
+}
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  width: 100%;
+  background: var(--surface);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  padding: 23px;
+  text-align: left;
+}
+.history-row:last-child {
+  border: 0;
+}
+.history-row:hover {
+  background: var(--soft);
+}
+.history-piece {
+  font-size: 36px;
+  font-family: Georgia, serif;
+  line-height: 1;
+  width: 45px;
+  text-align: center;
+}
+.history-row > div {
+  flex: 1;
+}
+.history-row strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 7px;
+  font-weight: 550;
+}
+.history-row small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+.history-result {
+  font-size: 11px;
+  color: var(--muted);
+}
+.history-resume {
+  font-size: 11px;
+  color: var(--accent);
+  margin-left: 20px;
+}
+.progress-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin: 34px 0;
+  gap: 30px;
+}
+.stat {
+  padding: 25px 0;
+  display: grid;
+  grid-template-columns: 23px 1fr;
+  gap: 12px;
+  color: var(--muted);
+}
+.stat > span {
+  font-size: 12px;
+  align-self: center;
+}
+.stat > strong {
+  grid-column: 1/-1;
+  font-family: Georgia, serif;
+  color: var(--ink);
+  font-size: 43px;
+  font-weight: 400;
+  margin-top: 8px;
+  letter-spacing: -2px;
+}
+.progress-layout {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 30px;
+}
+.topic-panel {
+  padding: 30px;
+}
+.topic-panel h2 {
+  font-size: 27px;
+  margin-bottom: 25px;
+}
+.topic-row {
+  padding: 18px 0;
+}
+.topic-row > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  align-items: center;
+}
+.topic-row strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.topic-row span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.topic-row b {
+  margin-left: 13px;
+  color: var(--ink);
+  font-weight: 550;
+}
+.topic-track {
+  height: 5px;
+  background: var(--soft);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 13px;
+}
+.topic-track > span {
+  display: block;
+  height: 100%;
+  background: var(--sage);
+  border-radius: 3px;
+}
+.practice-recommendations {
+  padding: 25px 0;
+}
+.practice-recommendations h2 {
+  font-size: 29px;
+}
+.recommendation {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  padding: 20px 0;
+  color: var(--ink);
+  text-align: left;
+}
+.recommendation > div {
+  flex: 1;
+}
+.recommendation strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.recommendation p {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+.practice-recommendations > .primary-button {
+  margin-top: 20px;
+}
+.timeline-panel {
+  margin-top: 30px;
+  padding: 30px;
+}
+.progress-timeline {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  min-height: 130px;
+}
+.progress-timeline > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+.progress-timeline span {
+  width: 23px;
+  background: var(--sage);
+  border-radius: 4px 4px 0 0;
+}
+.progress-timeline small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.settings-form {
+  max-width: 1000px;
+}
+.settings-section {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 35px;
+  border-top: 1px solid var(--line);
+  padding: 32px 0;
+}
+.settings-section h2 {
+  font-size: 25px;
+  margin-bottom: 10px;
+}
+.settings-section p {
+  font-size: 12px;
+  color: var(--muted);
+}
+.settings-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 25px;
+}
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 20px;
+  padding: 20px 0 35px;
+}
+.settings-footer > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--accent);
+}
+.llm-connection {
+  min-width: 0;
+}
+.llm-connection fieldset {
+  padding: 0;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.llm-connection .field small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.llm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+.llm-actions > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent);
+}

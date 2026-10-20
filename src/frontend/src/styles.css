@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@import "./styles/base.css";
+@import "./styles/board.css";
+@import "./styles/coach.css";
+@import "./styles/explore.css";
+@import "./styles/controls.css";
+@import "./styles/auth.css";
+@import "./styles/learning.css";
+@import "./styles/pages.css";
+@import "./styles/desktop.css";
+@import "./styles/mobile.css";
+@import "./styles/extras.css";
