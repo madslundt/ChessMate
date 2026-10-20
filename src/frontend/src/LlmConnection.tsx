@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, RefreshCw, Save } from 'lucide-react';
-import { api } from './api';
-import { useT } from './i18n';
+import { api, ApiError } from './api';
+import { useT, type TranslationKey } from './i18n';
 import { ErrorNotice, Field, Spinner, Toggle } from './components';
 
 interface Connection {
@@ -10,7 +10,17 @@ interface Connection {
   model: string;
   has_api_key: boolean;
   configured: boolean;
+  verify_tls: boolean;
 }
+
+const MODEL_ERRORS: Record<string, TranslationKey> = {
+  tls_certificate: 'llmModelsTlsError',
+  timeout: 'llmModelsTimeout',
+  connection: 'llmModelsConnectError',
+  authentication: 'llmModelsAuthError',
+  not_found: 'llmModelsNotFound',
+  invalid_response: 'llmModelsFormatError',
+};
 
 export function LlmConnection() {
   const t = useT();
@@ -29,13 +39,14 @@ export function LlmConnection() {
   const [customModel, setCustomModel] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelsError, setModelsError] = useState(false);
+  const [modelsError, setModelsError] = useState<TranslationKey | null>(null);
   const [refreshModels, setRefreshModels] = useState(0);
   const endpoint = draft?.base_url.trim().replace(/\/+$/, '') || '';
+  const verifyTls = draft?.verify_tls ?? true;
   useEffect(() => {
     const controller = new AbortController();
     setModels([]);
-    setModelsError(false);
+    setModelsError(null);
     setModelsLoading(!!endpoint);
     if (!endpoint) return;
     // Debounce edits; secrets are sent only in the request body, never query/cache keys.
@@ -47,13 +58,17 @@ export function LlmConnection() {
             base_url: endpoint,
             ...(apiKey ? { api_key: apiKey } : {}),
             clear_api_key: clearKey,
+            verify_tls: verifyTls,
           },
           'POST',
           controller.signal,
         );
         if (!controller.signal.aborted) setModels(result.models);
-      } catch {
-        if (!controller.signal.aborted) setModelsError(true);
+      } catch (error) {
+        if (!controller.signal.aborted)
+          setModelsError(
+            error instanceof ApiError ? MODEL_ERRORS[error.code || ''] || 'llmModelsError' : 'llmModelsError',
+          );
       } finally {
         if (!controller.signal.aborted) setModelsLoading(false);
       }
@@ -62,7 +77,7 @@ export function LlmConnection() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [endpoint, apiKey, clearKey, refreshModels]);
+  }, [endpoint, apiKey, clearKey, verifyTls, refreshModels]);
   const useCustomModel = customModel || (!!draft?.model && !models.includes(draft.model));
   useEffect(() => {
     if (connection.data) setDraft((current) => current || connection.data);
@@ -88,6 +103,7 @@ export function LlmConnection() {
               model: draft.model,
               ...(apiKey ? { api_key: apiKey } : {}),
               clear_api_key: clearKey,
+              verify_tls: verifyTls,
             },
             'PATCH',
           );
@@ -122,10 +138,25 @@ export function LlmConnection() {
                     value={draft.base_url}
                     placeholder="http://host.docker.internal:8000/v1"
                     maxLength={2000}
-                    onChange={(e) => change({ base_url: e.target.value })}
+                    onChange={(e) => change({ base_url: e.target.value, verify_tls: true })}
                   />
                   <small>{t('llmEndpointHelp')}</small>
                 </Field>
+                <Field label={t('llmCertificate')}>
+                  <select
+                    value={verifyTls ? 'verify' : 'ignore'}
+                    onChange={(event) => change({ verify_tls: event.target.value === 'verify' })}
+                  >
+                    <option value="verify">{t('llmCertificateVerify')}</option>
+                    <option value="ignore">{t('llmCertificateIgnore')}</option>
+                  </select>
+                  <small>{t('llmCertificateHelp')}</small>
+                </Field>
+                {!verifyTls && (
+                  <p className="llm-certificate-warning" role="status">
+                    {t('llmCertificateWarning')}
+                  </p>
+                )}
                 <Field label={t('llmModel')}>
                   <select
                     value={useCustomModel ? 'custom' : draft.model ? `model:${draft.model}` : ''}
@@ -162,7 +193,7 @@ export function LlmConnection() {
                       modelsLoading
                         ? 'llmModelsLoading'
                         : modelsError
-                          ? 'llmModelsError'
+                          ? modelsError
                           : !endpoint
                             ? 'llmModelsEndpoint'
                             : models.length

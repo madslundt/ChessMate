@@ -6,12 +6,10 @@ from sqlalchemy.orm import sessionmaker
 from src.backend.database import Base, get_db
 from src.backend.main import app
 import src.backend.main as main
-import src.backend.auth as auth
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    monkeypatch.setattr(auth, "_attempts", {})
     db_engine = create_engine(f"sqlite:///{tmp_path}/test.db", connect_args={"check_same_thread": False})
     Base.metadata.create_all(db_engine)
     factory = sessionmaker(bind=db_engine, expire_on_commit=False)
@@ -29,8 +27,9 @@ def client(tmp_path, monkeypatch):
 
 @pytest.fixture
 def signed(client):
-    response = client.post("/api/auth/register", json={"name": "learner", "password": "test-passphrase"})
+    response = client.post("/api/profiles", json={"name": "learner"})
     assert response.status_code == 201, response.text
+    client.headers["X-Profile-ID"] = response.json()["id"]
     return client
 
 

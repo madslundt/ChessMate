@@ -42,11 +42,11 @@ def api_checks() -> None:
         assert response.status_code == expected, f"{method} {path}: {response.status_code} {response.text}"
         return response
 
-    credentials = {"name": "postgres-verification", "password": "disposable-local-test-password"}
     with TestClient(app) as client:
         assert request(client, "GET", "/api/health").json()["engine"] == "available"
-        request(client, "GET", "/api/games", 401)
-        request(client, "POST", "/api/auth/register", 201, json=credentials)
+        request(client, "GET", "/api/games", 400)
+        profile = request(client, "POST", "/api/profiles", 201, json={"name": "postgres-verification"}).json()
+        client.headers["X-Profile-ID"] = profile["id"]
         request(client, "PATCH", "/api/settings", json={"show_evaluation": True, "show_pv": True,
                 "show_alternatives": True, "hide_best_moves": False, "analysis_time_ms": 100})
         game = request(client, "POST", "/api/games", 201,
@@ -113,24 +113,24 @@ def api_checks() -> None:
         assert "event: token" in chat.text and "event: done" in chat.text and "deterministic" in chat.text
         conversation = request(client, "GET", url + "/conversation").json()["messages"]
         assert [m["role"] for m in conversation] == ["user", "assistant"]
-        request(client, "POST", "/api/auth/logout", json={})
-        request(client, "GET", url, 401)
+        del client.headers["X-Profile-ID"]
+        request(client, "GET", url, 400)
 
-    # New lifespan/client uses the same PostgreSQL data, with a new login session.
+    # New lifespan/client resumes the same profile and PostgreSQL data.
     with TestClient(app) as resumed:
-        request(resumed, "POST", "/api/auth/login", json=credentials)
+        resumed.headers["X-Profile-ID"] = profile["id"]
         assert request(resumed, "GET", url).json()["revision"] == 3
         assert len(request(resumed, "GET", url + "/conversation").json()["messages"]) == 2
         assert request(resumed, "GET", "/api/progress").json()["correct"] == 1
         assert {x["id"] for x in request(resumed, "GET", "/api/repertoire").json()} == set(saved_lines)
-        request(resumed, "POST", "/api/auth/logout", json={})
-        request(resumed, "POST", "/api/auth/register", 201,
-                json={"name": "postgres-other-user", "password": "disposable-other-test-password"})
+        other = request(resumed, "POST", "/api/profiles", 201,
+                        json={"name": "postgres-other-profile"}).json()
+        resumed.headers["X-Profile-ID"] = other["id"]
         request(resumed, "GET", url, 404)
         assert request(resumed, "GET", "/api/repertoire").json() == []
         assert request(resumed, "GET", "/api/progress").json()["attempts"] == 0
     engine.dispose()
-    print("PostgreSQL API checks passed: auth/isolation, saved legal gameplay, stale/CAS updates, real Stockfish, "
+    print("PostgreSQL API checks passed: profiles/isolation, saved legal gameplay, stale/CAS updates, real Stockfish, "
           "exploration, computer/undo, hints/attempts/progress, training, both repertoires, durable coaching/resume.")
 
 

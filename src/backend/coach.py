@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .chess_tools import move_facts, move_idea, observations, parse_move
 from .coach_facts import PIECES_DA, build_statements, learner_color, fallback_keys, reveal_requested, show_line, visible_candidates
-from .config import settings
+from .config import settings, llm_tls_context
 from .engine import EngineUnavailable, engine_service
 from .llm_settings import Connection
 
@@ -111,7 +111,8 @@ class CoachService:
             if not url.endswith("/v1"): url += "/v1"
             headers = {"Authorization": f"Bearer {llm.api_key}"} if llm.api_key else {}
             chunks, size = [], 0
-            async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
+            async with httpx.AsyncClient(timeout=settings.llm_timeout,
+                                         verify=llm_tls_context() if llm.verify_tls else False) as client:
                 async with client.stream("POST", url + "/chat/completions", json=payload, headers=headers) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():

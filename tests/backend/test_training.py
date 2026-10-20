@@ -31,10 +31,10 @@ def training_client():
     app.dependency_overrides[get_db] = db_override
     with sessions() as db:
         training.seed_exercises(db)
-    auth._attempts.clear()
     with TestClient(app) as client:
-        response = client.post("/api/auth/register", json={"name": "trainee", "password": "training-password-123"})
+        response = client.post("/api/profiles", json={"name": "trainee"})
         assert response.status_code == 201, response.text
+        client.headers["X-Profile-ID"] = response.json()["id"]
         yield client, sessions
     engine.dispose()
 
@@ -55,12 +55,12 @@ def test_original_library_is_legal_complete_and_does_not_reveal_answers():
             board.push(parse_move(board, move))
 
 
-def test_api_requires_auth_and_hides_solutions(training_client):
+def test_api_requires_selected_profile_and_hides_solutions(training_client):
     client, _ = training_client
-    client.cookies.clear()
-    assert client.get("/api/exercises").status_code == 401
-    assert client.get("/api/progress").status_code == 401
-    assert client.post("/api/auth/login", json={"name": "trainee", "password": "training-password-123"}).status_code == 200
+    profile_id = client.headers.pop("X-Profile-ID")
+    assert client.get("/api/exercises").status_code == 400
+    assert client.get("/api/progress").status_code == 400
+    client.headers["X-Profile-ID"] = profile_id
     exercises = client.get("/api/exercises?category=forks").json()
     assert len(exercises) >= 8
     assert all("solution" not in x and "evidence" not in x and "hints" not in x for x in exercises)
@@ -146,8 +146,9 @@ def test_private_exercises_and_user_progress_are_isolated(training_client):
         db.add(Exercise(id=data["id"], category=data["category"], owner_id=owner.id, data=data))
         db.commit()
     assert client.get("/api/exercises/private-example").status_code == 200
-    assert client.post("/api/auth/logout").status_code == 200
-    assert client.post("/api/auth/register", json={"name": "other-user", "password": "another-password-123"}).status_code == 201
+    other = client.post("/api/profiles", json={"name": "other-user"})
+    assert other.status_code == 201
+    client.headers["X-Profile-ID"] = other.json()["id"]
     assert client.get("/api/exercises/private-example").status_code == 404
     assert all(x["id"] != "private-example" for x in client.get("/api/exercises").json())
     assert client.get("/api/progress").json()["attempts"] == 0
@@ -228,12 +229,13 @@ def test_opening_repertoire_is_legal_persistent_and_owned(training_client, color
     assert line["fen"] == board.fen()
     assert client.get("/api/repertoire").json()[0]["id"] == line["id"]
     assert client.post("/api/repertoire", json={"name": "Bad", "color": color, "moves": ["e5"]}).status_code == 422
-    client.post("/api/auth/logout")
-    client.post("/api/auth/register", json={"name": "new-repertoire-owner", "password": "another-password-123"})
+    original_id = client.headers["X-Profile-ID"]
+    other = client.post("/api/profiles", json={"name": "new-repertoire-owner"})
+    assert other.status_code == 201
+    client.headers["X-Profile-ID"] = other.json()["id"]
     assert client.get("/api/repertoire").json() == []
     assert client.delete(f"/api/repertoire/{line['id']}").status_code == 404
-    client.post("/api/auth/logout")
-    client.post("/api/auth/login", json={"name": "trainee", "password": "training-password-123"})
+    client.headers["X-Profile-ID"] = original_id
     assert client.delete(f"/api/repertoire/{line['id']}").json()["deleted"]
     assert client.get("/api/repertoire").json() == []
 

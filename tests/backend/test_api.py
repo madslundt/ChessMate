@@ -7,12 +7,18 @@ def start(client, **fields):
     return response.json()
 
 
-def test_auth_ownership_and_revocation(signed):
+def test_profile_selection_and_game_ownership(signed):
+    original_id = signed.headers.pop("X-Profile-ID")
+    assert signed.get("/api/games").status_code == 400
+    signed.headers["X-Profile-ID"] = original_id
     game = start(signed)
-    assert signed.post("/api/auth/logout", json={}).status_code == 200
-    assert signed.get("/api/games").status_code == 401
-    signed.post("/api/auth/register", json={"name": "other", "password": "other-password"})
+    other = signed.post("/api/profiles", json={"name": "other"})
+    assert other.status_code == 201
+    signed.headers["X-Profile-ID"] = other.json()["id"]
+    assert signed.get("/api/games").json() == []
     assert signed.get("/api/games/" + game["id"]).status_code == 404
+    signed.headers["X-Profile-ID"] = original_id
+    assert signed.get("/api/games/" + game["id"]).status_code == 200
 
 
 def test_game_revision_legal_moves_and_computer(signed):
@@ -173,10 +179,11 @@ def test_paused_computer_turn_coach_keeps_white_learner_identity(signed):
     assert "Your pieces geometrically control these central squares: d5." in text
 
 
-def test_computer_replies_default_on_and_saved_pause_survives_login(client):
-    credentials = {"name": "automatic-replies", "password": "automatic-replies-password"}
-    registered = client.post("/api/auth/register", json=credentials)
+def test_computer_replies_default_on_and_saved_pause_survives_profile_switch(client):
+    registered = client.post("/api/profiles", json={"name": "automatic-replies"})
     assert registered.status_code == 201
+    profile_id = registered.json()["id"]
+    client.headers["X-Profile-ID"] = profile_id
     assert registered.json()["preferences"]["auto_computer"] is True
     assert client.get("/api/settings").json()["auto_computer"] is True
 
@@ -185,8 +192,11 @@ def test_computer_replies_default_on_and_saved_pause_survives_login(client):
     updated = client.patch("/api/settings", json={"feedback": "detailed"})
     assert updated.status_code == 200 and updated.json()["auto_computer"] is False
 
-    assert client.post("/api/auth/logout", json={}).status_code == 200
-    signed_in = client.post("/api/auth/login", json=credentials)
-    assert signed_in.status_code == 200
-    assert signed_in.json()["preferences"]["auto_computer"] is False
+    other = client.post("/api/profiles", json={"name": "other"}).json()
+    client.headers["X-Profile-ID"] = other["id"]
+    assert client.get("/api/settings").json()["auto_computer"] is True
+    client.headers["X-Profile-ID"] = profile_id
+    profiles = client.get("/api/profiles").json()
+    selected = next(profile for profile in profiles if profile["id"] == profile_id)
+    assert selected["preferences"]["auto_computer"] is False
     assert client.get("/api/settings").json()["auto_computer"] is False

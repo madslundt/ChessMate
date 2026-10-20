@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
@@ -19,7 +19,8 @@ class User(Base):
     __tablename__ = "users"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     name: Mapped[str] = mapped_column(String(40), unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String(256))
+    # Legacy column retained for existing databases; profile selection does not use passwords.
+    password_hash: Mapped[str] = mapped_column(String(256), default="")
     preferences: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
@@ -30,6 +31,7 @@ class LlmConnection(Base):
     base_url: Mapped[str] = mapped_column(String(2000), default="")
     model: Mapped[str] = mapped_column(String(200), default="")
     api_key: Mapped[str] = mapped_column(Text, default="")
+    verify_tls: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
 
 
 class AuthSession(Base):

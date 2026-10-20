@@ -2,27 +2,38 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code?: string,
   ) {
     super(message);
   }
 }
 export async function api<T>(path: string, body?: unknown, method?: string, signal?: AbortSignal): Promise<T> {
+  const profileId = localStorage.getItem('chessmate.profile');
   const response = await fetch(`/api${path}`, {
     method: method || (body === undefined ? 'GET' : 'POST'),
     credentials: 'same-origin',
-    headers: body === undefined && method !== 'DELETE' ? {} : { 'Content-Type': 'application/json' },
+    headers: {
+      ...(body === undefined && method !== 'DELETE' ? {} : { 'Content-Type': 'application/json' }),
+      ...(profileId ? { 'X-Profile-ID': profileId } : {}),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
+    let code: string | undefined;
     try {
       const d = await response.json();
-      message = typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail || d);
+      if (typeof d.detail?.message === 'string') {
+        message = d.detail.message;
+        code = typeof d.detail.code === 'string' ? d.detail.code : undefined;
+      } else {
+        message = typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail || d);
+      }
     } catch {
       /* plain upstream failure */
     }
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, code);
   }
   if (response.status === 204) return undefined as T;
   return response.json();
@@ -32,10 +43,11 @@ export async function streamCoach(
   onEvent: (event: string, data: Record<string, unknown>) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  const profileId = localStorage.getItem('chessmate.profile');
   const response = await fetch('/api/coach', {
     method: 'POST',
     credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(profileId ? { 'X-Profile-ID': profileId } : {}) },
     body: JSON.stringify(body),
     signal,
   });

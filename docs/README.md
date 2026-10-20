@@ -38,7 +38,7 @@ From the repository root:
 ./scripts/start.sh
 ```
 
-The script creates an ignored `config/.env` with a random PostgreSQL password, builds the application, applies database migrations, and waits for service health. Open [http://localhost:8080](http://localhost:8080), create a local account, and sign in. Use the same account on another device to access saved games and progress.
+The script creates an ignored `config/.env` with a random PostgreSQL password, builds the application, applies database migrations, and waits for service health. Open [http://localhost:8080](http://localhost:8080) and create or select a local profile. Profiles keep games and progress separate on this installation; profile selection does not require a password or provide cross-device identity.
 
 This Compose deployment was built and started successfully. PostgreSQL migrations reached `3419be9c3cd5`, all 64 public exercises were seeded, and frontend/backend/database health checks passed. Full application/database stop and startup preserved saved accounts, games, preferences, and coaching conversations. The generated environment file has mode `0600`.
 
@@ -128,7 +128,7 @@ docker compose --env-file config/.env -f config/compose.yaml logs --tail=100 bac
 curl --fail http://localhost:8080/api/health
 ```
 
-Interactive OpenAPI documentation is served at [http://localhost:8080/docs](http://localhost:8080/docs); API operations requiring a user account use the same session cookie as the application.
+Interactive OpenAPI documentation is served at [http://localhost:8080/docs](http://localhost:8080/docs). The browser sends the selected profile ID with profile-scoped API requests.
 
 Stop containers while keeping data:
 
@@ -284,11 +284,11 @@ Imports perform fresh validation before committing and skip existing identifiers
 
 ## API guide
 
-All account data endpoints require a signed-in local session. Mutating requests use JSON and browser-origin validation. Core account, game, analysis, exercise, progress, and settings responses use typed Pydantic models in `src/backend/views.py`. Full request/response schemas are validated and published in `/docs` and `/openapi.json`.
+Profile-scoped data endpoints use the selected profile ID sent by the browser. Mutating requests use JSON and browser-origin validation. Core profile, game, analysis, exercise, progress, and settings responses use typed Pydantic models in `src/backend/views.py`. Full request/response schemas are validated and published in `/docs` and `/openapi.json`.
 
 | Purpose | Endpoints |
 | --- | --- |
-| Local authentication | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` |
+| Profiles | `GET /api/profiles`, `POST /api/profiles`, `PATCH /api/profiles/{id}`, `DELETE /api/profiles/{id}` |
 | Games | `POST /api/games`, `GET /api/games`, `GET /api/games/{id}` |
 | Game commands | `POST /api/games/{id}/moves`, `/computer`, `/undo`; commands include the current revision |
 | Export and review | `GET /api/games/{id}/pgn`, `GET /api/games/{id}/review`, `GET /api/games/{id}/conversation` |
@@ -307,17 +307,17 @@ Browser: React / TypeScript / chess.js / react-chessboard
     | same-origin HTTP and streamed coaching
 Nginx: static PWA assets + /api reverse proxy
     |
-FastAPI: authentication / game commands / training / coaching
+FastAPI: profile selection / game commands / training / coaching
     |                     |                         |
 PostgreSQL           Stockfish over UCI     External local LLM
 SQLAlchemy/Alembic    python-chess rules     OpenAI-compatible API
 ```
 
-The browser provides interaction and immediate move previews. The backend owns saved game state, legal move validation, account authorization, and revision checks. Stored move sequences reconstruct board history; append-only game events preserve the actions behind state changes, including undo. Concurrent updates must match the current revision instead of silently overwriting another move.
+The browser provides interaction and immediate move previews. The backend owns saved game state, legal move validation, profile scoping, and revision checks. Stored move sequences reconstruct board history; append-only game events preserve the actions behind state changes, including undo. Concurrent updates must match the current revision instead of silently overwriting another move.
 
 The engine service owns one Stockfish process, serializes its use, and bounds wait time and search budgets. Its 256-entry, ten-minute in-memory cache keys include the full FEN, move stack, time/depth limits, candidate count, and any root-move restriction. API analysis evidence is also persisted in PostgreSQL. Candidate moves and principal variations come from Stockfish, with SAN produced by replaying legal moves through python-chess. Game and exploration analysis have explicit position identities so feedback for one position cannot silently become feedback for another.
 
-PostgreSQL stores users/preferences, hashed session tokens, games/events, coaching messages, position evidence, exercises/attempts, training sessions, and progress. Account-scoped queries protect private history. The local authentication flow does not require an external identity provider.
+PostgreSQL stores profiles/preferences, legacy session rows, games/events, coaching messages, position evidence, exercises/attempts, training sessions, and progress. Profile-scoped queries keep histories separate within this installation. Profile IDs are selectable local labels, not authentication credentials.
 
 ## Evaluation and coaching logic
 

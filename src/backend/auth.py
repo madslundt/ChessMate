@@ -1,121 +1,98 @@
-"""Local account passwords and opaque, revocable, database-backed sessions."""
-import hashlib
-import hmac
-import secrets
-import threading
-import time
-from datetime import datetime, timedelta, timezone
-
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import delete, select
-from sqlalchemy.exc import IntegrityError
+"""Local profile selection. Profiles have no passwords or sign-in sessions."""
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .config import settings
 from .database import get_db
-from .models import AuthSession, User
-from .schemas import Credentials, Preferences
+from .models import AuthSession, CoachingMessage, Game, GameEvent, HintUsage, LlmConnection, User
+from .schemas import Preferences
+from .training_models import Exercise, ExerciseAttempt, HintEvent, LearningProgress, OpeningLine, TrainingSession
 from .views import UserView
 
-router = APIRouter(prefix="/auth", tags=["Accounts"])
-COOKIE = "chessmate_session"
-_rate_lock = threading.Lock()
-_attempts: dict[str, list[float]] = {}
+router = APIRouter(prefix="/profiles", tags=["Profiles"])
 
 
-def rate_limit(request: Request) -> None:
-    host = request.client.host if request.client else "local"
-    now = time.monotonic()
-    with _rate_lock:
-        for key in list(_attempts):
-            _attempts[key] = [t for t in _attempts[key] if now - t < 300]
-            if not _attempts[key]: del _attempts[key]
-        attempts = _attempts.setdefault(host, [])
-        if len(attempts) >= 20 or len(_attempts) > 10000:
-            raise HTTPException(429, "Too many authentication attempts; try again in five minutes")
-        attempts.append(now)
+class ProfileInput(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
 
 
-def password_hash(password: str, salt: str | None = None) -> str:
-    salt = salt or secrets.token_hex(16)
-    digest = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=16384, r=8, p=1).hex()
-    return f"scrypt${salt}${digest}"
-
-
-def password_matches(password: str, encoded: str) -> bool:
-    try:
-        _, salt, _digest = encoded.split("$")
-        return hmac.compare_digest(password_hash(password, salt), encoded)
-    except ValueError:
-        return False
-
-
-def session_hash(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
-
-
-def current_user(request: Request, db: Session = Depends(get_db)) -> User:
-    token = request.cookies.get(COOKIE, "")
-    session = db.get(AuthSession, session_hash(token)) if token else None
-    if not session or session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
-        raise HTTPException(401, "Sign in to continue")
-    user = db.get(User, session.user_id)
-    if not user: raise HTTPException(401, "Account no longer exists")
+def current_user(profile_id: str | None = Header(default=None, alias="X-Profile-ID"),
+                 db: Session = Depends(get_db)) -> User:
+    if not profile_id:
+        raise HTTPException(400, "Select a profile to continue")
+    user = db.get(User, profile_id)
+    if not user:
+        raise HTTPException(404, "Profile not found")
     return user
 
 
-def public_user(user: User) -> dict:
+def _name(value: str) -> str:
+    name = value.strip()
+    if not name:
+        raise HTTPException(422, "Profile name cannot be blank")
+    return name
+
+
+def _ensure_unique(db: Session, name: str, excluding: str | None = None) -> None:
+    query = select(User.id).where(func.lower(User.name) == name.casefold())
+    if excluding:
+        query = query.where(User.id != excluding)
+    if db.scalar(query):
+        raise HTTPException(409, "A profile with that name already exists")
+
+
+def _public(user: User) -> dict:
     return {"id": user.id, "name": user.name,
             "preferences": Preferences.model_validate(user.preferences or {}).model_dump()}
 
 
-def create_session(user: User, response: Response, db: Session) -> None:
-    token = secrets.token_urlsafe(32)
-    db.execute(delete(AuthSession).where(AuthSession.expires_at < datetime.now(timezone.utc)))
-    db.add(AuthSession(token_hash=session_hash(token), user_id=user.id,
-                       expires_at=datetime.now(timezone.utc) + timedelta(days=30)))
-    db.commit()
-    response.set_cookie(COOKIE, token, httponly=True, secure=settings.cookie_secure,
-                        samesite="lax", max_age=30 * 86400, path="/")
+@router.get("", response_model=list[UserView])
+def list_profiles(db: Session = Depends(get_db)) -> list[dict]:
+    return [_public(user) for user in db.scalars(select(User).order_by(User.created_at, User.name))]
 
 
-@router.post("/register", status_code=201, response_model=UserView)
-def register(data: Credentials, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
-    rate_limit(request)
-    user = User(name=data.name.casefold(), password_hash=password_hash(data.password),
-                preferences=Preferences().model_dump())
+@router.post("", status_code=201, response_model=UserView)
+def create_profile(data: ProfileInput, db: Session = Depends(get_db)) -> dict:
+    name = _name(data.name)
+    _ensure_unique(db, name)
+    user = User(name=name, password_hash="", preferences=Preferences().model_dump())
     db.add(user)
-    try: db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(409, "That account name is already taken") from None
-    create_session(user, response, db)
-    return public_user(user)
+    db.commit()
+    db.refresh(user)
+    return _public(user)
 
 
-@router.post("/login", response_model=UserView)
-def login(data: Credentials, request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
-    rate_limit(request)
-    user = db.scalar(select(User).where(User.name == data.name.casefold()))
-    # A dummy hash makes unknown-account authentication comparable in cost.
-    valid = password_matches(data.password, user.password_hash if user else password_hash("invalid-password"))
-    if not user or not valid: raise HTTPException(401, "Invalid account name or password")
-    old = request.cookies.get(COOKIE)
-    if old: db.execute(delete(AuthSession).where(AuthSession.token_hash == session_hash(old)))
-    create_session(user, response, db)
-    return public_user(user)
+@router.patch("/{profile_id}", response_model=UserView)
+def update_profile(profile_id: str, data: ProfileInput, db: Session = Depends(get_db)) -> dict:
+    user = db.get(User, profile_id)
+    if not user:
+        raise HTTPException(404, "Profile not found")
+    name = _name(data.name)
+    _ensure_unique(db, name, excluding=profile_id)
+    user.name = name
+    db.commit()
+    return _public(user)
 
 
-@router.get("/me", response_model=UserView)
-def me(user: User = Depends(current_user)) -> dict:
-    return public_user(user)
-
-
-@router.post("/logout")
-def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> dict:
-    token = request.cookies.get(COOKIE)
-    if token:
-        db.execute(delete(AuthSession).where(AuthSession.token_hash == session_hash(token)))
-        db.commit()
-    response.delete_cookie(COOKIE, path="/")
-    return {"ok": True}
+@router.delete("/{profile_id}", status_code=204)
+def delete_profile(profile_id: str, db: Session = Depends(get_db)) -> None:
+    user = db.get(User, profile_id)
+    if not user:
+        raise HTTPException(404, "Profile not found")
+    game_ids = select(Game.id).where(Game.user_id == profile_id)
+    # Remove owned data explicitly so deletion works with SQLite and PostgreSQL alike.
+    db.execute(delete(GameEvent).where(GameEvent.game_id.in_(game_ids)))
+    db.execute(delete(CoachingMessage).where(CoachingMessage.user_id == profile_id))
+    db.execute(delete(HintUsage).where(HintUsage.user_id == profile_id))
+    db.execute(delete(ExerciseAttempt).where(ExerciseAttempt.user_id == profile_id))
+    db.execute(delete(HintEvent).where(HintEvent.user_id == profile_id))
+    db.execute(delete(LearningProgress).where(LearningProgress.user_id == profile_id))
+    db.execute(delete(TrainingSession).where(TrainingSession.user_id == profile_id))
+    db.execute(delete(OpeningLine).where(OpeningLine.user_id == profile_id))
+    db.execute(delete(Exercise).where(Exercise.owner_id == profile_id))
+    db.execute(delete(LlmConnection).where(LlmConnection.user_id == profile_id))
+    db.execute(delete(AuthSession).where(AuthSession.user_id == profile_id))
+    db.execute(delete(Game).where(Game.user_id == profile_id))
+    db.delete(user)
+    db.commit()

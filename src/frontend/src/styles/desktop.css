@@ -132,6 +132,12 @@
   .logout {
     display: none;
   }
+  .profile-switch {
+    display: flex;
+    justify-content: center;
+    padding: 10px;
+    font-size: 0;
+  }
   .main-content {
     margin-left: 76px;
     width: calc(100% - 76px);

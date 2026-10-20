@@ -9,7 +9,6 @@ import {
   Flame,
   Gamepad2,
   Lightbulb,
-  LogOut,
   Save,
   Target,
 } from 'lucide-react';
@@ -170,11 +169,9 @@ export function ProgressPage({ onLearn }: { onLearn: () => void }) {
   );
 }
 export function SettingsPage({
-  onLogout,
   preferences,
   onSaved,
 }: {
-  onLogout: () => Promise<void>;
   preferences: Preferences;
   onSaved: (p: Preferences) => void;
 }) {
@@ -361,16 +358,6 @@ export function SettingsPage({
         </section>
         <ErrorNotice error={error} />
         <div className="settings-footer">
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => {
-              void onLogout().catch(setError);
-            }}
-          >
-            <LogOut size={16} />
-            {t('logout')}
-          </button>
           {saved && (
             <span role="status">
               <Check size={16} />

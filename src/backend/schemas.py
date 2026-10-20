@@ -8,11 +8,6 @@ class Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Credentials(Input):
-    name: str = Field(min_length=2, max_length=40, pattern=r"^[a-zA-Z0-9_.-]+$")
-    password: str = Field(min_length=8, max_length=128)
-
-
 class GameCreate(Input):
     mode: Literal["computer", "training", "analysis"] = "training"
     player_color: Literal["white", "black"] = "white"

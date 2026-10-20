@@ -31,6 +31,7 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
+      LLM_CA_BUNDLE: ${LLM_CA_BUNDLE:-}
       LLM_TIMEOUT: ${LLM_TIMEOUT:-35}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-600}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.2}
@@ -55,6 +56,8 @@ services:
       migrate: { condition: service_completed_successfully }
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./certificates:/app/config/certificates:ro
     read_only: true
     tmpfs: ["/tmp:size=64m,mode=1777"]
     healthcheck:

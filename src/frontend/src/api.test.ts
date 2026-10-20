@@ -1,7 +1,27 @@
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { api, ApiError, streamCoach } from './api';
+beforeEach(() => vi.stubGlobal('localStorage', { getItem: () => null }));
 afterEach(() => vi.unstubAllGlobals());
 describe('API transport', () => {
+  it('retains the safe model-discovery error code for a useful UI message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              detail: { code: 'tls_certificate', message: 'The backend does not trust the server certificate.' },
+            }),
+            { status: 502 },
+          ),
+      ),
+    );
+    await expect(api('/settings/llm/models', { base_url: 'https://local-model/v1' })).rejects.toMatchObject({
+      code: 'tls_certificate',
+      status: 502,
+      message: 'The backend does not trust the server certificate.',
+    });
+  });
   it('retains a structured validation error and status', async () => {
     vi.stubGlobal(
       'fetch',

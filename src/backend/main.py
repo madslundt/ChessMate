@@ -37,7 +37,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Chessmate API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=list(settings.allowed_origins), allow_credentials=True,
-                   allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Content-Type"])
+                   allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"], allow_headers=["Content-Type", "X-Profile-ID"])
 
 
 @app.middleware("http")

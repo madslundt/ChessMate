@@ -1,4 +1,5 @@
 config/.env
+config/certificates/
 .env
 .env.*
 !config/.env.example

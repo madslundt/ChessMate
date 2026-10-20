@@ -5,38 +5,133 @@ import httpx
 import pytest
 
 
+def test_private_ca_is_required_and_hostname_verification_remains_enabled(monkeypatch, tmp_path):
+    import asyncio
+    import shutil
+    import ssl
+    import subprocess
+    import threading
+    from dataclasses import replace
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import src.backend.config as config
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from fastapi import HTTPException
+    from src.backend.database import Base
+    from src.backend.models import User
+    from src.backend.llm_settings import Connection, connection_for, list_models, save_connection
+    from src.backend.coach import CoachService
+
+    openssl = shutil.which("openssl")
+    if not openssl:
+        pytest.skip("TLS integration fixture requires openssl")
+    certificate, key = tmp_path / "test-ca.pem", tmp_path / "test.key"
+    subprocess.run([openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+                    "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost",
+                    "-keyout", str(key), "-out", str(certificate)],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args): pass
+        def do_GET(self):
+            body = b'{"data":[{"id":"private-tls-model"}]}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            chunk = json.dumps({"choices": [{"delta": {"content": '{"fact_ids":["plan"]}'}}]})
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(f"data: {chunk}\n\ndata: [DONE]\n\n".encode())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certificate, key)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    db = Session(engine)
+    user = User(id="tls-regression", name="TLS fixture", password_hash="")
+    db.add(user)
+    db.commit()
+    monkeypatch.setattr(config, "settings", replace(config.settings, llm_ca_bundle=""))
+    def discover(endpoint, **options):
+        return asyncio.run(list_models({"base_url": endpoint, **options}, user, db))
+    try:
+        endpoint = f"https://localhost:{server.server_port}/v1"
+        with pytest.raises(HTTPException) as initial:
+            discover(endpoint)
+        assert initial.value.status_code == 502
+        assert initial.value.detail["code"] == "tls_certificate"
+        assert discover(endpoint, verify_tls=False) == {"models": ["private-tls-model"]}
+        service = CoachService()
+        unverified = Connection(endpoint, "tls-fixture", verify_tls=False)
+        selection = asyncio.run(service._model_selection({}, {"plan": "Verified fact"}, unverified))
+        assert selection.fact_ids == ["plan"]
+        saved = save_connection({"base_url": endpoint, "model": "tls-fixture", "verify_tls": False}, user, db)
+        assert saved["verify_tls"] is False and connection_for(db, user).verify_tls is False
+        assert discover(endpoint) == {"models": ["private-tls-model"]}
+        assert connection_for(db, User(id="other-profile")).verify_tls is True
+        with pytest.raises(HTTPException):
+            discover(endpoint.replace("localhost", "127.0.0.1"))
+        with pytest.raises(HTTPException):
+            discover(endpoint, verify_tls=True)
+        save_connection({"base_url": endpoint, "model": "tls-fixture", "verify_tls": True}, user, db)
+        monkeypatch.setattr(config, "settings", replace(config.settings, llm_ca_bundle=str(certificate)))
+        assert discover(endpoint) == {"models": ["private-tls-model"]}
+        selection = asyncio.run(service._model_selection({}, {"plan": "Verified fact"}, connection_for(db, user)))
+        assert selection.fact_ids == ["plan"]
+        with pytest.raises(HTTPException) as wrong_host:
+            discover(endpoint.replace("localhost", "127.0.0.1"))
+        assert wrong_host.value.status_code == 502 and wrong_host.value.detail["code"] == "tls_certificate"
+        save_connection({"base_url": endpoint, "model": "tls-fixture", "verify_tls": False}, user, db)
+        changed = save_connection({"base_url": "https://another-server/v1", "model": "tls-fixture"}, user, db)
+        assert changed["verify_tls"] is True
+    finally:
+        db.close()
+        engine.dispose()
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
 CONNECTION = {"base_url": "http://model-server:8000/v1", "model": "local-chess-model"}
 
 
-def test_connection_requires_authentication(client):
-    assert client.get("/api/settings/llm").status_code == 401
-    assert client.patch("/api/settings/llm", json=CONNECTION).status_code == 401
-    assert client.post("/api/settings/llm/models", json={"base_url": CONNECTION["base_url"]}).status_code == 401
+def test_connection_requires_selected_profile(client):
+    assert client.get("/api/settings/llm").status_code == 400
+    assert client.patch("/api/settings/llm", json=CONNECTION).status_code == 400
+    assert client.post("/api/settings/llm/models", json={"base_url": CONNECTION["base_url"]}).status_code == 400
 
 
 def test_save_preserve_remove_key_and_persist(signed):
     secret = "test-only-provider-secret"
     response = signed.patch("/api/settings/llm", json={**CONNECTION, "api_key": secret})
     assert response.status_code == 200
-    assert response.json() == {**CONNECTION, "has_api_key": True, "configured": True}
+    assert response.json() == {**CONNECTION, "has_api_key": True, "configured": True, "verify_tls": True}
     assert secret not in response.text
     assert secret not in signed.get("/api/settings/llm").text
-    assert secret not in signed.get("/api/auth/me").text
+    assert secret not in signed.get("/api/profiles").text
     assert secret not in signed.get("/api/settings").text
-    signed.post("/api/auth/logout", json={})
-    signed.post("/api/auth/login", json={"name": "learner", "password": "test-passphrase"})
+    profile_id = signed.headers.pop("X-Profile-ID")
+    assert signed.get("/api/settings/llm").status_code == 400
+    signed.headers["X-Profile-ID"] = profile_id
     assert signed.get("/api/settings/llm").json()["model"] == CONNECTION["model"]
     response = signed.patch("/api/settings/llm", json={**CONNECTION, "model": "another-model"})
     assert response.json()["has_api_key"] is True
     assert signed.patch("/api/settings/llm", json={**CONNECTION, "clear_api_key": True}).json()["has_api_key"] is False
 
 
-def test_endpoint_change_cannot_forward_old_key_and_accounts_are_isolated(signed):
+def test_endpoint_change_cannot_forward_old_key_and_profiles_are_isolated(signed):
     signed.patch("/api/settings/llm", json={**CONNECTION, "api_key": "old-key"})
     changed = {**CONNECTION, "base_url": "http://different-server:8000/v1"}
     assert signed.patch("/api/settings/llm", json=changed).json()["has_api_key"] is False
-    signed.post("/api/auth/logout", json={})
-    signed.post("/api/auth/register", json={"name": "separate-account", "password": "another-passphrase"})
+    other = signed.post("/api/profiles", json={"name": "separate-profile"})
+    assert other.status_code == 201
+    signed.headers["X-Profile-ID"] = other.json()["id"]
     assert signed.get("/api/settings/llm").json()["base_url"] != changed["base_url"]
 
 
@@ -75,7 +170,7 @@ def test_saved_connection_drives_coaching_and_empty_connection_disables_it(signe
     assert requests[0].url == "http://model-server:8000/v1/chat/completions"
     assert "fixture-key" not in response.text
     cleared = signed.patch("/api/settings/llm", json={"base_url": "", "model": ""})
-    assert cleared.json() == {"base_url": "", "model": "", "has_api_key": False, "configured": False}
+    assert cleared.json() == {"base_url": "", "model": "", "has_api_key": False, "configured": False, "verify_tls": True}
     response = signed.post("/api/coach", json={"fen": chess.STARTING_FEN, "question": "What should I focus on?"})
     assert "deterministic" in response.text and len(requests) == 1
 

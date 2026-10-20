@@ -263,3 +263,10 @@
 .llm-model-status > span {
   flex: 1 1 220px;
 }
+.llm-connection .llm-certificate-warning {
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--danger-bg);
+  color: var(--danger);
+}
