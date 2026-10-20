@@ -84,14 +84,22 @@ def test_deep_search_uses_separate_worker_and_preserves_requested_budget(monkeyp
     assert received[0]["time_ms"] == 12000 and result["mode"] == "deep"
 
 
-def test_opponent_selects_searched_candidates_instead_of_random_legal_moves(monkeypatch):
+def test_practice_opponent_is_isolated_and_strongest_level_preserves_analysis(monkeypatch):
+    import src.backend.engine as module
     from src.backend.engine import EngineService
     service = EngineService()
     calls = []
+    practice_calls = []
     def analyze(board, **kwargs):
         calls.append(kwargs)
         return {"candidates": [{"uci": "e2e4"}, {"uci": "d2d4"}, {"uci": "g1f3"}]}
     monkeypatch.setattr(service, "analyze", analyze)
-    for difficulty in range(1, 6):
-        assert service.play(chess.Board(), difficulty).uci() in ("e2e4", "d2d4", "g1f3")
-    assert len(calls) == 5
+    def practice(board, difficulty, rng):
+        practice_calls.append((difficulty, rng))
+        return board.parse_san("Nc3")
+    monkeypatch.setattr(service._opponent, "choose", practice)
+    for difficulty in range(1, 5):
+        assert service.play(chess.Board(), difficulty).uci() == "b1c3"
+    assert practice_calls == [(level, module.random) for level in range(1, 5)]
+    assert service.play(chess.Board(), 5).uci() == "e2e4"
+    assert calls == [{"time_ms": 700, "candidates": 3}]

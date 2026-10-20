@@ -15,6 +15,7 @@ import chess.engine
 from .chess_tools import move_facts, move_idea, move_insights, observations
 from .config import settings
 from .coaching_strategy import candidate_strategy, strategic_facts, strategic_insights
+from .opponent import OpponentService, OpponentUnavailable
 
 
 class EngineUnavailable(RuntimeError):
@@ -69,6 +70,7 @@ class EngineService:
         self._last_failure = 0.0
         self._deep_service: EngineService | None = None
         self._deep_worker = deep_worker
+        self._opponent = OpponentService(lambda: self.path())
 
     def path(self) -> str | None:
         return settings.stockfish_path or shutil.which("stockfish") or next((p for p in (
@@ -96,6 +98,7 @@ class EngineService:
         return observations(board)
 
     def close(self) -> None:
+        self._opponent.close()
         if self._deep_service:
             self._deep_service.close()
         with self._lock:
@@ -345,12 +348,13 @@ class EngineService:
 
     def play(self, board: chess.Board, difficulty: int = 2) -> chess.Move:
         difficulty = max(1, min(5, difficulty))
-        # Sample plausible searched candidates rather than arbitrary legal moves. Practice levels are not Elo ratings.
-        result = self.analyze(board, time_ms={1: 60, 2: 100, 3: 180, 4: 350, 5: 700}[difficulty], candidates=3)
+        if difficulty < 5:
+            try: return self._opponent.choose(board, difficulty, random)
+            except OpponentUnavailable as exc: raise EngineUnavailable(str(exc)) from exc
+        # The strongest setting preserves full-strength analysis; coaching preferences never set opponent strength.
+        result = self.analyze(board, time_ms=700, candidates=3)
         if not result["candidates"]: raise ValueError("No legal move")
-        weights = {1: [1, 1, .8], 2: [1, .7, .5], 3: [1, .35, .15], 4: [1, .1, .02], 5: [1, 0, 0]}[difficulty]
-        candidate = random.choices(result["candidates"], weights=weights[:len(result["candidates"])])[0]
-        return chess.Move.from_uci(candidate["uci"])
+        return chess.Move.from_uci(result["candidates"][0]["uci"])
 
 
 engine_service = EngineService()
