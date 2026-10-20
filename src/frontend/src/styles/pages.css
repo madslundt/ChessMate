@@ -249,3 +249,17 @@
   font-size: 12px;
   color: var(--accent);
 }
+.llm-model-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: -6px 0 18px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.llm-model-status > span {
+  flex: 1 1 220px;
+}
