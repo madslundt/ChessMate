@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRight,
   BookOpen,
@@ -11,39 +11,81 @@ import {
   Lightbulb,
   Save,
   Target,
+  Upload,
 } from 'lucide-react';
 import { api } from './api';
 import { Empty, ErrorNotice, Field, PageHeading, Spinner, Toggle } from './components';
 import { useT, type TranslationKey } from './i18n';
 import type { Game, Preferences, Progress } from './types';
 import { LlmConnection } from './LlmConnection';
+import { ImportModal } from './GameDialogs';
 import { gamePath, Link } from './navigation';
-export function History({ onResume }: { onResume: (g: Game) => void }) {
+export function History({
+  onResume,
+  preferences,
+  analysisMode = false,
+}: {
+  onResume: (g: Game) => void;
+  preferences: Preferences;
+  analysisMode?: boolean;
+}) {
   const t = useT(),
+    client = useQueryClient(),
+    [importing, setImporting] = useState(false),
     games = useQuery({
       queryKey: ['games'],
-      queryFn: () => api<Game[]>('/games'),
+      queryFn: ({ signal }) => api<Game[]>('/games', undefined, undefined, signal),
+      retry: false,
     });
   return (
     <>
-      <PageHeading title={t('history')} />
+      <PageHeading
+        title={t(analysisMode ? 'analyze' : 'history')}
+        subtitle={analysisMode ? t('analysisListHelp') : undefined}
+      >
+        {analysisMode && (
+          <button className="primary-button" onClick={() => setImporting(true)}>
+            <Upload size={19} />
+            {t('importPgn')}
+          </button>
+        )}
+      </PageHeading>
       <ErrorNotice error={games.error} />
+      {games.isError && (
+        <button className="outline-button" onClick={() => void games.refetch()}>
+          {t('retryAnalysis')}
+        </button>
+      )}
       {games.isPending ? (
         <Spinner />
       ) : !games.data?.length ? (
-        <Empty>
-          <Clock3 size={32} />
-          <p>{t('emptyGames')}</p>
-        </Empty>
+        !games.isError && (
+          <Empty>
+            <Clock3 size={32} />
+            <p>{t(analysisMode ? 'emptyAnalysis' : 'emptyGames')}</p>
+            {analysisMode && (
+              <Link className="primary-button" href="/play">
+                {t('playGame')}
+              </Link>
+            )}
+          </Empty>
+        )
       ) : (
-        <div className="history-list panel">
+        <section className="history-list panel" aria-label={t('savedGames')}>
           {games.data.map((g) => (
             <Link
               className="history-row"
               key={g.id}
-              href={gamePath(g)}
+              href={analysisMode ? `/analyze/${encodeURIComponent(g.id)}` : gamePath(g)}
               onClick={(event) => {
-                if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+                if (
+                  !analysisMode &&
+                  event.button === 0 &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.shiftKey &&
+                  !event.altKey
+                ) {
                   event.preventDefault();
                   onResume(g);
                 }
@@ -55,22 +97,56 @@ export function History({ onResume }: { onResume: (g: Game) => void }) {
                   {t(g.mode === 'analysis' ? 'freeAnalysis' : g.mode === 'training' ? 'training' : 'computer')}
                 </strong>
                 <small>
-                  {g.created_at &&
-                    new Date(g.created_at).toLocaleDateString(undefined, {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}{' '}
-                  · {Math.ceil(g.moves.length / 2)} {t('moves').toLowerCase()}
+                  {g.created_at && (
+                    <>
+                      {new Date(g.created_at).toLocaleDateString(preferences.language === 'da' ? 'da-DK' : 'en-GB', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}{' '}
+                      ·{' '}
+                    </>
+                  )}
+                  {Math.ceil(g.moves.length / 2)} {t('moves').toLowerCase()}
+                  {analysisMode && <> · {t(g.player_color)}</>}
                 </small>
               </div>
-              <span className="history-result">{g.result === '*' ? t('active') : g.result}</span>
-              <span className="history-resume">{t('resume')}</span>
+              <span className="history-result">
+                {!g.result || g.result === '*'
+                  ? t('active')
+                  : analysisMode
+                    ? t(
+                        g.result === '1/2-1/2'
+                          ? 'draw'
+                          : g.result === (g.player_color === 'white' ? '1-0' : '0-1')
+                            ? 'victory'
+                            : 'defeat',
+                      )
+                    : g.result}
+              </span>
+              <span className="history-resume">{t(analysisMode ? 'review' : 'resume')}</span>
               <ChevronRight size={18} />
             </Link>
           ))}
-        </div>
+        </section>
+      )}
+      {importing && (
+        <ImportModal
+          onClose={() => setImporting(false)}
+          onImport={async (value) => {
+            const isFen = value.trim().split(/\s+/).length === 6 && !value.includes('[');
+            const game = await api<Game>('/games', {
+              mode: 'analysis',
+              player_color: preferences.player_color,
+              difficulty: preferences.difficulty,
+              ...(isFen ? { fen: value.trim() } : { pgn: value.trim() }),
+            });
+            void client.invalidateQueries({ queryKey: ['games'] });
+            setImporting(false);
+            onResume(game);
+          }}
+        />
       )}
     </>
   );

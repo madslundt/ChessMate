@@ -70,6 +70,7 @@ export function App() {
     if (activeGame) setLastGames((previous) => ({ ...previous, [page]: activeGame }));
   }, [activeGame, page]);
   function pagePath(target: Page) {
+    if (target === 'analyze') return '/analyze';
     return lastGames[target] ? `/${target}/${lastGames[target]}` : `/${target}`;
   }
   function selectProfile(profile: User) {
@@ -182,7 +183,7 @@ export function App() {
                 error={new Error(preferences.language === 'da' ? 'Siden blev ikke fundet.' : 'Page not found.')}
               />
             )}
-            {route.found && (page === 'play' || page === 'analyze') && (
+            {route.found && (page === 'play' || (page === 'analyze' && activeGame)) && (
               <GameWorkspace
                 key={`${page}-${user.id}`}
                 activeGameId={activeGame}
@@ -191,8 +192,11 @@ export function App() {
                 analysisMode={page === 'analyze'}
               />
             )}
+            {route.found && page === 'analyze' && !activeGame && (
+              <History onResume={selectGame} preferences={preferences} analysisMode />
+            )}
             {route.found && page === 'learn' && <Learn preferences={preferences} route={route} />}
-            {route.found && page === 'history' && <History onResume={selectGame} />}
+            {route.found && page === 'history' && <History onResume={selectGame} preferences={preferences} />}
             {route.found && page === 'progress' && <ProgressPage onLearn={() => navigate('/learn')} />}
             {route.found && page === 'settings' && (
               <SettingsPage

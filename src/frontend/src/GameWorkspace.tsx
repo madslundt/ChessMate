@@ -90,6 +90,12 @@ export function GameWorkspace(props: WorkspaceProps) {
   }
   return (
     <>
+      {analysisMode && (
+        <Link className="text-button back-button" href="/analyze">
+          <ArrowLeft size={16} />
+          {t('backGames')}
+        </Link>
+      )}
       <PageHeading title={t(analysisMode ? 'analyze' : 'play')} subtitle={analysisMode ? t('analysisHelp') : undefined}>
         <button className="primary-button" onClick={() => setSetup(true)}>
           <Plus size={19} />

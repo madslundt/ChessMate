@@ -143,7 +143,7 @@ export function GameLoading({
             {preferences.language === 'da' ? 'Prøv igen' : 'Try again'}
           </button>
           <Link className="primary-button" href={analysisMode ? '/analyze' : '/play'}>
-            {t('newGame')}
+            {t(analysisMode ? 'backGames' : 'newGame')}
           </Link>
         </>
       )}

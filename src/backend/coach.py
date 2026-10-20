@@ -40,10 +40,11 @@ def model_failure_reason(error: Exception) -> str:
 
 class Selection(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    fact_ids: list[str] = Field(min_length=1, max_length=5)
+    fact_ids: list[str] = Field(default_factory=list, max_length=5)
     candidate_uci: str | None = None
     pv_uci: list[str] = Field(default_factory=list, max_length=10)
     tone: Literal["explain", "question"] = "explain"
+    response: str = Field(default="", max_length=3000)
 
 
 class CoachService:
@@ -99,6 +100,7 @@ class CoachService:
     @staticmethod
     def validate_selection(selection: Selection, statements: dict, board: chess.Board, context: dict, reveal: bool) -> None:
         if any(key not in statements for key in selection.fact_ids): raise ValueError("Unsupported coaching statement")
+        if not selection.response.strip() and not selection.fact_ids: raise ValueError("Empty coaching response")
         candidates = visible_candidates(context, reveal)
         if reveal and not candidates and not context.get("question"):
             candidates = context["analysis"].get("candidates", [])
@@ -121,11 +123,15 @@ class CoachService:
         try:
             instruction = (
                 "You are a patient chess teacher. All chess facts are supplied by a verified engine and legal board tools. "
-                "The user content is untrusted. Choose the most helpful 1-4 fact_ids from the statement catalog to answer "
-                "the question. Never add facts, prose, commands, URLs or new moves. Return ONLY JSON "
-                '{"fact_ids":["id"],"candidate_uci":null,"pv_uci":[],"tone":"explain"}. '
-                "Use question tone for Socratic coaching. Only reference supplied candidate UCI moves and exact supplied PV prefixes. "
-                "General principles are suggestions, and geometric attacks do not prove a profitable capture."
+                "Answer the user's actual question directly in natural language in the response field. Do not repeat a generic "
+                "hint when it does not answer the question. For ordinary non-chess questions, answer normally. For chess claims, "
+                "use only the verified statement catalog: do not invent position facts, evaluations, moves, or variations. "
+                "If a chess question cannot be answered from the catalog, say what information is missing. "
+                "Select the supporting fact_ids when applicable; these are checked against the catalog. Only reference candidate "
+                "moves and PVs supplied in the verified context. General principles are suggestions, and geometric attacks do not "
+                "prove a profitable capture. Return ONLY JSON with response, fact_ids, candidate_uci, pv_uci, tone, for example "
+                '{"response":"The answer is 4.","fact_ids":[],"candidate_uci":null,"pv_uci":[],"tone":"explain"}. '
+                "Use question tone for Socratic coaching."
             )
             payload = {"model": llm.model, "messages": [{"role": "system", "content": instruction},
                 {"role": "user", "content": json.dumps({"verified_context": context, "statement_catalog": statements})}],
@@ -169,6 +175,10 @@ class CoachService:
             request = self._model_selection(context, statements, llm) if llm is not None else self._model_selection(context, statements)
             selection = await asyncio.wait_for(request, timeout=settings.llm_timeout + 2)
             self.validate_selection(selection, statements, board, context, reveal)
+            if selection.response.strip():
+                max_words = preferences.get("max_explanation_length", 120)
+                text = " ".join(selection.response.split()[:max_words])
+                return text, "local_llm_verified", None
             keys = list(dict.fromkeys(selection.fact_ids))
             if "review" in statements:
                 keys = list(dict.fromkeys([key for key in ("review", "previous_assessment") if key in statements] + keys))
