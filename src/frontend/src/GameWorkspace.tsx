@@ -209,6 +209,12 @@ export function GameWorkspace(props: WorkspaceProps) {
             )}
             <Board
               fen={boardFen}
+              result={game && finished && atLatest && !explore && !analysisMode ? {
+                id: `${game.id}:${game.revision}`,
+                score: game.result!,
+                playerColor: game.player_color,
+                reason: status,
+              } : undefined}
               animate={!explore || preferences.animate_variations !== false}
               preferences={preferences}
               orientation={displayOrientation}

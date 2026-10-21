@@ -3,7 +3,40 @@ import { Chess, type Square } from 'chess.js';
 import { Chessboard, type ChessboardOptions } from 'react-chessboard';
 import type { Color, Preferences } from './types';
 import { useT } from './i18n';
-import { X } from 'lucide-react';
+import { Flag, Handshake, Trophy, X } from 'lucide-react';
+
+interface BoardResult {
+  id: string;
+  score: string;
+  playerColor: Color;
+  reason: string;
+}
+
+function ResultOverlay({ result }: { result: BoardResult }) {
+  const t = useT();
+  const [dismissed, setDismissed] = useState(false);
+  const outcome = result.score === '1/2-1/2'
+    ? 'draw'
+    : result.score === (result.playerColor === 'white' ? '1-0' : '0-1') ? 'victory' : 'defeat';
+  const Icon = outcome === 'victory' ? Trophy : outcome === 'draw' ? Handshake : Flag;
+  if (dismissed) return null;
+  return (
+    <div className={`board-result board-result--${outcome}`}>
+      <div className="board-result-card">
+        <button className="board-result-close" aria-label={t('close')} onClick={() => setDismissed(true)}>
+          <X size={18} aria-hidden="true" />
+        </button>
+        <div className="board-result-content" role="status" aria-live="polite" aria-atomic="true">
+          <span className="board-result-emblem" aria-hidden="true"><Icon size={30} strokeWidth={1.5} /></span>
+          <span className="board-result-eyebrow">{t('gameOver')}</span>
+          <h2>{t(outcome)}</h2>
+          <span className="board-result-reason">{result.reason}</span>
+          <span className="board-result-score">{result.score === '1/2-1/2' ? '½ – ½' : result.score.replace('-', ' – ')}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface Props {
   fen: string;
@@ -18,8 +51,9 @@ interface Props {
   highlightedMove?: string | null;
   targets?: string[];
   arrows?: { startSquare: string; endSquare: string; color: string }[];
+  result?: BoardResult;
 }
-export function Board({ fen, preferences, orientation, onMove, disabled = false, lastMove, highlightedMove, targets = [], arrows = [], boardId, animate = true, onSelectSquare }: Props) {
+export function Board({ fen, preferences, orientation, onMove, disabled = false, lastMove, highlightedMove, targets = [], arrows = [], boardId, animate = true, onSelectSquare, result }: Props) {
   const t = useT(),
     [selected, setSelected] = useState<string | null>(null),
     [held, setHeld] = useState<string | null>(null),
@@ -183,6 +217,7 @@ export function Board({ fen, preferences, orientation, onMove, disabled = false,
           ),
         }}
       />
+      {result && <ResultOverlay key={result.id} result={result} />}
       {promotion && (
         <div className="promotion-backdrop">
           <div className="promotion-menu" role="dialog" aria-modal="true" aria-label={t('promotion')}>
