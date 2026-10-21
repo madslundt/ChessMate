@@ -338,8 +338,7 @@ async def synthesize(data: SynthesisInput, user: User = Depends(current_user), d
     if saved is None or saved.tts_mode != "server" or not saved.tts_base_url or not saved.tts_model or not saved.tts_voice:
         raise HTTPException(409, "Server speech synthesis is not configured")
     headers = {"Authorization": f"Bearer {saved.tts_api_key}"} if saved.tts_api_key else {}
-    payload = {"model": saved.tts_model, "input": data.text, "voice": saved.tts_voice, "response_format": saved.tts_format,
-               "instructions": "Speak in English." if data.language == "en" else "Speak in Danish."}
+    payload = {"model": saved.tts_model, "input": data.text, "voice": saved.tts_voice, "response_format": saved.tts_format}
     try:
         async with _client(saved.verify_tls) as client:
             async with client.stream("POST", _base(saved.tts_base_url) + "/audio/speech", headers=headers, json=payload) as response:
