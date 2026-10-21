@@ -340,17 +340,6 @@ export function CoachPanel({
           <>
             <div className="coach-scroll" ref={scroll}>
               <div className="teaching-controls"><label htmlFor="teaching-mode">{t('teachingStyle')}</label><select id="teaching-mode" value={teachingMode} onChange={(event) => setTeachingMode(event.target.value as typeof teachingMode)}><option value="guided">{t('guidedQuestions')}</option><option value="direct">{t('directExplanation')}</option></select>{state && <small role="status">{t('discoveredFacts')}: {state.discovered_ids.length}</small>}</div>
-              <div className="coach-actions coach-primary-actions">
-                <button className="outline-button" onClick={requestHint} disabled={positionPending || analyzing || busy || hintLevel >= 4}>
-                  <Lightbulb size={20} />
-                  {hintLevel ? t('nextHint') : t('hint')}
-                  {hintLevel > 0 && <small>{hintLevel}/4</small>}
-                </button>
-                <button className="outline-button" onClick={() => void compare()} disabled={positionPending || analyzing}>
-                  <ChartNoAxesColumnIncreasing size={20} />
-                  {t('compare')}
-                </button>
-              </div>
               {teachingMode === 'guided' && state && <SocraticProgress state={state} />}
               {teachingMode === 'guided' && <button className="text-button" disabled={busy || positionPending} onClick={() => onPickSquare((square) => void send(square))}>{t('answerOnBoard')}</button>}
               <div className="coach-intro">
@@ -428,6 +417,17 @@ export function CoachPanel({
               onServerTranscribe={transcribeAudio}
               onServerSpeak={(text) => synthesizeSpeech(text, preferences.coach_language)}
             />
+            <div className="coach-actions coach-primary-actions">
+              <button className="outline-button" onClick={requestHint} disabled={positionPending || analyzing || busy || hintLevel >= 4}>
+                <Lightbulb size={20} />
+                {hintLevel ? t('nextHint') : t('hint')}
+                {hintLevel > 0 && <small>{hintLevel}/4</small>}
+              </button>
+              <button className="outline-button" onClick={() => void compare()} disabled={positionPending || analyzing}>
+                <ChartNoAxesColumnIncreasing size={20} />
+                {t('compare')}
+              </button>
+            </div>
           </>
         )}
       </div>

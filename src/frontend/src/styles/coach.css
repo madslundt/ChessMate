@@ -72,10 +72,8 @@
   gap: 11px;
 }
 .coach-primary-actions {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  padding: 10px 0;
+  flex-shrink: 0;
+  padding: 0 12px 12px;
   background: var(--surface);
 }
 .coach-actions .outline-button {
