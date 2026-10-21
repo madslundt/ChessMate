@@ -42,6 +42,30 @@ def test_game_revision_legal_moves_and_computer(signed):
     assert undo.json()["moves"] == [] and undo.json()["revision"] == 3
 
 
+@pytest.mark.parametrize("player_color,pgn,remaining", [
+    ("white", "1. e4 e5 2. Nf3 *", ["e4", "e5"]),
+    ("white", "1. e4 e5 2. Nf3 Nc6 *", ["e4", "e5"]),
+    ("black", "1. e4 e5 2. Nf3 Nc6 *", ["e4", "e5", "Nf3"]),
+    ("black", "1. e4 e5 2. Nf3 Nc6 3. Bb5 *", ["e4", "e5", "Nf3"]),
+])
+def test_training_undo_returns_to_before_players_last_move(signed, player_color, pgn, remaining):
+    game = start(signed, mode="training", player_color=player_color, pgn=pgn)
+    url = f"/api/games/{game['id']}"
+    response = signed.post(url + "/undo", json={"revision": game["revision"]})
+    assert response.status_code == 200, response.text
+    undone = response.json()
+    assert [move["san"] for move in undone["moves"]] == remaining
+    assert undone["fen"] == game["moves"][len(remaining) - 1]["fen"]
+    assert undone["turn"] == player_color
+    persisted = signed.get(url).json()
+    assert persisted["moves"] == undone["moves"] and persisted["can_redo"]
+    response = signed.post(url + "/redo", json={"revision": undone["revision"]})
+    assert response.status_code == 200, response.text
+    restored = response.json()
+    assert [move["uci"] for move in restored["moves"]] == [move["uci"] for move in game["moves"]]
+    assert restored["fen"] == game["fen"]
+
+
 def test_pgn_fen_and_independent_exploration(signed):
     game = start(signed, mode="analysis", pgn='[Event "Test"]\n\n1. e4 e5 2. Nf3 *')
     url = "/api/games/" + game["id"]

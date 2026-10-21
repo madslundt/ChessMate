@@ -17,6 +17,7 @@ import { VisualExplanation } from './VisualExplanation';
 import { ExplanationText } from './ExplanationText';
 import { ConsequenceComparison } from './ConsequenceComparison';
 import { SocraticProgress } from './SocraticProgress';
+import { ChessText } from './ChessText';
 import { FeedbackHighlights } from './FeedbackHighlights';
 const CalculationPractice = lazy(() => import('./CalculationPractice').then((module) => ({ default: module.CalculationPractice })));
 import type { Analysis, Candidate, Color, Game, Preferences, VisualInsight } from './types';
@@ -64,15 +65,16 @@ function MoveFeedbackEntry({
       : (index % 2 === 0 ? 'white' : 'black'));
   const moveNumber = Number(game.initial_fen.split(' ')[5] || 1) +
     Math.floor((index + (initialTurn === 'b' ? 1 : 0)) / 2);
+  const moveBase = move.before_fen || (index === 0 ? game.initial_fen : game.moves[index - 1]?.fen);
+  const referenceProps = { fen: move.fen, beforeFen: moveBase, coaching: feedback || undefined, onVisual, activeVisual };
   const heading = <div className="move-feedback-heading">
     <span className="move-feedback-turn"><span className="move-feedback-color-dot" aria-hidden="true" />
       <strong>{moveColor === 'white' ? t('white') : t('black')}</strong>
     </span>
-    <span className="move-feedback-san">{moveNumber}{moveColor === 'white' ? '.' : '...'} {move.san}</span>
+    <span className="move-feedback-san">{moveNumber}{moveColor === 'white' ? '.' : '...'} <ChessText {...referenceProps} text={move.san} /></span>
   </div>;
   if (!feedback || !moveFeedbackVisible) return <div className={`feedback-note move-feedback-entry ${moveColor}`} data-testid="move-feedback">{heading}</div>;
   const isCurrentFeedback = index === feedbackPly;
-  const moveBase = move.before_fen || (index === 0 ? game.initial_fen : game.moves[index - 1]?.fen);
   const expandedKey = `${game.id}-${index}-${move.uci}`;
   const activeExplanation = expanded[expandedKey];
   const threatInsights = feedback.insights?.filter((insight) => /threat|attack|check|defen|pin|fork|tactic/i.test(`${insight.claim_type || ''} ${insight.id} ${insight.text}`)) || [];
@@ -102,10 +104,10 @@ function MoveFeedbackEntry({
       {feedback.actor === 'opponent' && <small>{t('opponentMove')}</small>}
       <ConfidenceBadge mode={feedback.analysis_mode} confidence={feedback.confidence} />
       <ExplanationText mode={preferences.explanation_mode}>
-        <p>{summary}</p>
-        {!isBadMove && feedback.consequence && feedback.consequence !== summary && <p>{feedback.consequence}</p>}
+        <p><ChessText {...referenceProps} text={summary} /></p>
+        {!isBadMove && feedback.consequence && feedback.consequence !== summary && <p><ChessText {...referenceProps} text={feedback.consequence} /></p>}
       </ExplanationText>
-      {activeExplanation === 'threats' && (threatInsights.length ? <div className="move-threat-details">{threatInsights.map((insight) => <p key={insight.id}>{insight.text}</p>)}{threatInsights.some((insight) => insight.fen === currentFen) && <VisualExplanation coaching={{ insights: threatInsights.filter((insight) => insight.fen === currentFen) }} onVisual={onVisual} onPreview={onPreview} />}</div> : <p className="muted">{t('threatsUnavailable')}</p>)}
+      {activeExplanation === 'threats' && (threatInsights.length ? <div className="move-threat-details">{threatInsights.map((insight) => <p key={insight.id}><ChessText {...referenceProps} fen={insight.fen} text={insight.text} /></p>)}{threatInsights.some((insight) => insight.fen === currentFen) && <VisualExplanation coaching={{ insights: threatInsights.filter((insight) => insight.fen === currentFen) }} onVisual={onVisual} onPreview={onPreview} />}</div> : <p className="muted">{t('threatsUnavailable')}</p>)}
       <div className="visual-explanation-actions move-feedback-actions">
         <button className="text-button" onClick={() => feedback.best && moveBase ? onPreview(feedback.best, moveBase, index) : toggleExplanation('better')}>{t('showBetterMove')}</button>
         <button className="text-button" onClick={() => toggleExplanation('threats')} aria-expanded={activeExplanation === 'threats'}>{t('showThreats')}</button>
@@ -113,7 +115,7 @@ function MoveFeedbackEntry({
         {isGoodMove && <button className="text-button" onClick={() => toggleExplanation('good')} aria-expanded={activeExplanation === 'good'}>{t('whyWasGood')}</button>}
         {isBadMove && <button className="text-button" onClick={() => toggleExplanation('better')} aria-expanded={activeExplanation === 'better'}>{t('whatWasBetter')}</button>}
       </div>
-      {activeExplanation && activeExplanation !== 'threats' && <p className="move-feedback-explanation">{explanation || t('explanationUnavailable')}</p>}
+      {activeExplanation && activeExplanation !== 'threats' && <p className="move-feedback-explanation"><ChessText {...referenceProps} text={explanation || t('explanationUnavailable')} /></p>}
       {isCurrentFeedback && preferences.explanation_mode !== 'text' && <VisualExplanation coaching={feedback} onVisual={onVisual} onPreview={onPreview} />}
       {isCurrentFeedback && moveBase && <ConsequenceComparison feedback={feedback} base={moveBase} preferences={preferences} orientation={orientation} onPreview={onPreview} />}
       {isCurrentFeedback && moveBase && <div className="visual-explanation-actions">
@@ -122,7 +124,7 @@ function MoveFeedbackEntry({
         <button className="text-button" onClick={() => onRetry(moveBase, index)}>{t('retryPosition')}</button>
       </div>}
       {isCurrentFeedback && preferences.feedback === 'detailed' && feedback.takeaway && (
-        <p className="takeaway">{feedback.takeaway}</p>
+        <p className="takeaway"><ChessText {...referenceProps} text={feedback.takeaway} /></p>
       )}
       {moveBase && <FeedbackHighlights feedback={feedback} beforeFen={moveBase} playedUci={move.uci} onVisual={onVisual} activeVisual={activeVisual} />}
     </div>
@@ -363,7 +365,7 @@ export function CoachPanel({
               )}
               {guidedText && (
                 <div className="hint-note guided-note">
-                  <p>{guidedText}</p>
+                  <p><ChessText text={guidedText || undefined} fen={fen} onVisual={onVisual} activeVisual={activeVisual} /></p>
                 </div>
               )}
               <div className="coach-actions">
@@ -377,9 +379,9 @@ export function CoachPanel({
               <div data-testid="coach-timeline">
                 {coachTimeline(exploring ? null : game, messages).map((entry) => entry.kind === 'move'
                   ? <MoveFeedbackEntry key={`move-${entry.moveIndex}-${game?.moves[entry.moveIndex]?.uci}`} moveIndex={entry.moveIndex} game={game} preferences={preferences} exploring={exploring} feedbackPly={feedbackPly} currentFen={fen} orientation={orientation} onVisual={onVisual} activeVisual={activeVisual} onPreview={onPreview} onRetry={onRetry} />
-                  : <CoachMessages key={entry.message.id || `message-${messages.indexOf(entry.message)}`} messages={[entry.message]} busy={busy || positionPending} fen={fen} preferences={preferences} onVisual={onVisual} onPreview={onPreview} onResolve={(uci) => void send(preferences.coach_language === 'da' ? `Hvad hvis jeg spiller ${uci}?` : `What if I play ${uci}?`)} />)}
+                  : <CoachMessages key={entry.message.id || `message-${messages.indexOf(entry.message)}`} messages={[entry.message]} activeVisual={activeVisual} busy={busy || positionPending} fen={fen} preferences={preferences} onVisual={onVisual} onPreview={onPreview} onResolve={(uci) => void send(preferences.coach_language === 'da' ? `Hvad hvis jeg spiller ${uci}?` : `What if I play ${uci}?`)} />)}
               </div>
-              {hint && <HintCard hint={hint} hintLevel={hintLevel} hintMove={hintMove} hintVisual={hintVisual} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onVisual={onVisual} onPreview={onPreview} />}
+              {hint && <HintCard fen={fen} activeVisual={activeVisual} hint={hint} hintLevel={hintLevel} hintMove={hintMove} hintVisual={hintVisual} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onVisual={onVisual} onPreview={onPreview} />}
               <ErrorNotice error={error} onDismiss={() => setError(null)} />
             </div>
             <form

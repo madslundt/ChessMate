@@ -1,3 +1,4 @@
+import { ChessText } from "./ChessText";
 import { useT } from "./i18n";
 import { VisualExplanation } from "./VisualExplanation";
 import type {
@@ -8,6 +9,8 @@ import type {
 } from "./types";
 export function HintCard({
   hint,
+  fen,
+  activeVisual,
   hintLevel,
   hintMove,
   hintVisual,
@@ -19,6 +22,8 @@ export function HintCard({
   onPreview,
 }: {
   hint: string;
+  fen: string;
+  activeVisual?: VisualInsight | null;
   hintLevel: number;
   hintMove: string | null;
   hintVisual: VisualCoaching | null;
@@ -54,7 +59,7 @@ export function HintCard({
       <span>
         {t("hint")} {hintLevel}/2
       </span>
-      <p>{hint}</p>
+      <p><ChessText text={hint} fen={fen} coaching={hintVisual || undefined} onVisual={onVisual} activeVisual={activeVisual} /></p>
       {hintVisual && preferences.explanation_mode !== "text" && (
         <VisualExplanation
           coaching={hintVisual}

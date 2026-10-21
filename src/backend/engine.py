@@ -233,6 +233,24 @@ class EngineService:
         finally:
             self._lock.release()
 
+    def compare(self, board: chess.Board, time_ms: int = 250, depth: int | None = None,
+                mode: str = "quick") -> dict:
+        """Sample three legal choices, including one close to the engine's best move."""
+        budget = {"time_ms": time_ms, "depth": depth, "candidates": 3}
+        if mode != "quick": budget["mode"] = mode
+        ranked = self.analyze(board, **budget)
+        legal = list(board.legal_moves)
+        if not ranked["candidates"] or len(legal) <= 3:
+            return ranked
+        best = score_number(ranked["candidates"][0])
+        good = [candidate for candidate in ranked["candidates"]
+                if best - score_number(candidate) <= 35]
+        anchor = chess.Move.from_uci(random.choice(good)["uci"])
+        others = random.sample([move for move in legal if move != anchor], 2)
+        # Sample outside the analysis cache so repeated requests can offer fresh choices.
+        # Search these roots together to retain comparable scores and legal variations.
+        return self.analyze(board, root_moves=[anchor, *others], **budget)
+
     def grade(self, board: chess.Board, move: chess.Move, time_ms: int = 250, language: str = "en", complexity: str = "beginner",
               mode: str = "quick", cancel_event: threading.Event | None = None) -> dict:
         # Both searches begin at the identical root, share a time/depth budget, and use root POV.

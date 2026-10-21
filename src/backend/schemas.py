@@ -47,6 +47,10 @@ class PositionRequest(Input):
     candidates: int = Field(default=3, ge=1, le=3)
 
 
+class AnalysisRequest(PositionRequest):
+    candidate_selection: Literal["best", "practice"] = "best"
+
+
 class HintRequest(PositionRequest):
     level: int = Field(default=1, ge=1, le=2)
     language: Literal["en", "da"] = "en"

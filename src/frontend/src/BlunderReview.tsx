@@ -4,6 +4,7 @@ import { Chess } from 'chess.js';
 import { api } from './api';
 import { ErrorNotice, Spinner } from './components';
 import { useT } from './i18n';
+import { ChessText } from './ChessText';
 import { FeedbackHighlights } from './FeedbackHighlights';
 import type { Analysis, Candidate, Feedback, Preferences, VisualInsight } from './types';
 
@@ -79,13 +80,20 @@ export function BlunderReview({
   const alternatives = betterAlternatives(beforeFen, uci, candidates, feedback.played);
   const reason = feedback.consequence || feedback.explanation || feedback.text || feedback.assessment;
   const reply = feedback.played?.pv?.slice(1, 4).join(' → ');
+  let afterFen = beforeFen;
+  try {
+    const after = new Chess(beforeFen);
+    after.move(uci);
+    afterFen = after.fen();
+  } catch { /* Keep the decision position for invalid stored moves. */ }
+  const referenceProps = { fen: afterFen, beforeFen, coaching: feedback, onVisual, activeVisual };
   return (
     <section className="blunder-review" aria-label={t('whyBad')}>
       <h4>{t('whyBad')}</h4>
-      <p>{reason || t('reasonUnavailable')}</p>
+      <p><ChessText {...referenceProps} text={reason || t('reasonUnavailable')} /></p>
       {reply && (
         <p className="blunder-reply">
-          <strong>{t('opponentReply')}:</strong> {reply}
+          <strong>{t('opponentReply')}:</strong> <ChessText {...referenceProps} beforeFen={afterFen} text={reply} />
         </p>
       )}
       {feedback.played && <button className="outline-button" onClick={() => onPreview(feedback.played!)}>{t('watchConsequence')}</button>}
@@ -110,8 +118,8 @@ export function BlunderReview({
         <ol className="blunder-alternatives">
           {alternatives.map((candidate) => (
             <li key={candidate.uci}>
-              <strong>{candidate.san}</strong>
-              {(candidate.explanation || candidate.idea) && <p>{candidate.explanation || candidate.idea}</p>}
+              <strong><ChessText {...referenceProps} fen={beforeFen} text={candidate.san} /></strong>
+              {(candidate.explanation || candidate.idea) && <p><ChessText {...referenceProps} fen={beforeFen} text={candidate.explanation || candidate.idea} /></p>}
               <button className="outline-button" onClick={() => onPreview(candidate)}>
                 {t('previewMove')} {candidate.san}
               </button>

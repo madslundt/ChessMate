@@ -1,3 +1,4 @@
+import { ChessText } from './ChessText';
 import { useState } from 'react';
 import { useFullGameAnalysis } from './useFullGameAnalysis';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -175,7 +176,7 @@ export function GameReview({
               positionFen={current.before_fen || (current.ply === 1 ? game!.initial_fen : game!.moves[current.ply - 2].fen)}
               engineFeedback={
                 <div className={`review-decision feedback-note ${current.rating}`}>
-                  <strong>{current.san} · {t(current.rating)}</strong>
+                  <strong><ChessText text={current.san} fen={current.before_fen || (current.ply === 1 ? game!.initial_fen : game!.moves[current.ply - 2].fen)} onVisual={onVisual} activeVisual={activeVisual} /> · {t(current.rating)}</strong>
                   <ConfidenceBadge mode={current.feedback?.analysis_mode} confidence={current.feedback?.confidence} />
                   {['blunder', 'mistake', 'inaccuracy'].includes(current.rating) && current.feedback && game ? (
                     <BlunderReview
@@ -189,9 +190,9 @@ export function GameReview({
                       onPreview={(candidate) => onPreview(candidate, current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen), current.ply - 1)}
                     />
                   ) : (
-                    <p>{current.feedback?.text || current.feedback?.explanation || current.feedback?.assessment}</p>
+                    <p><ChessText text={current.feedback?.text || current.feedback?.explanation || current.feedback?.assessment} fen={current.fen} beforeFen={current.before_fen || (current.ply === 1 ? game!.initial_fen : game!.moves[current.ply - 2].fen)} coaching={current.feedback || undefined} onVisual={onVisual} activeVisual={activeVisual} /></p>
                   )}
-                  {current.feedback?.takeaway && <p className="takeaway">{current.feedback.takeaway}</p>}
+                  {current.feedback?.takeaway && <p className="takeaway"><ChessText text={current.feedback.takeaway} fen={current.fen} beforeFen={current.before_fen || (current.ply === 1 ? game!.initial_fen : game!.moves[current.ply - 2].fen)} coaching={current.feedback} onVisual={onVisual} activeVisual={activeVisual} /></p>}
                   {current.feedback && game && <ConsequenceComparison feedback={current.feedback} base={current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen)} preferences={preferences} orientation={orientation || game.player_color} onPreview={onPreview} />}
                   <div className="review-decision-actions">
                     <button className="outline-button" aria-pressed={!exploring && ply === current.ply - 1} onClick={() => onNavigate(current.ply - 1)}>{t('beforeMove')}</button>

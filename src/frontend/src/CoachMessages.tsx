@@ -1,4 +1,5 @@
 import { useT, type TranslationKey } from "./i18n";
+import { ChessText } from "./ChessText";
 import { ExplanationText } from "./ExplanationText";
 import { Spinner } from "./components";
 import { VisualExplanation } from "./VisualExplanation";
@@ -25,6 +26,7 @@ export function CoachMessages({
   preferences,
   onVisual,
   onPreview,
+  activeVisual,
   onResolve,
 }: {
   messages: ChatMessage[];
@@ -32,6 +34,7 @@ export function CoachMessages({
   fen: string;
   preferences: Preferences;
   onVisual: (insight: VisualInsight) => void;
+  activeVisual?: VisualInsight | null;
   onResolve: (uci: string) => void;
   onPreview: (candidate: Candidate, baseFen?: string) => void;
 }) {
@@ -50,7 +53,7 @@ export function CoachMessages({
             }
           >
             <p>
-              {m.content ||
+              {m.content ? <ChessText text={m.content} fen={m.fen || fen} coaching={m} onVisual={onVisual} activeVisual={activeVisual} /> :
                 (busy && i === messages.length - 1 ? (
                   <Spinner
                     label={t(

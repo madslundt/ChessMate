@@ -1,6 +1,7 @@
 import { useT, type TranslationKey } from './i18n';
 import type { Color, Game, VisualInsight } from './types';
 import { FeedbackHighlights } from './FeedbackHighlights';
+import { ChessText } from './ChessText';
 
 const classifications = new Set(['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder', 'forced', 'uncertain']);
 
@@ -22,6 +23,8 @@ export function LastMoveFeedback({ game, ply, onVisual, activeVisual }: { game: 
           const index = latest[color];
           const move = index === undefined ? undefined : game.moves[index];
           const feedback = move?.feedback;
+          const beforeFen = move?.before_fen || (index === undefined || index === 0 ? game.initial_fen : game.moves[index - 1].fen);
+          const referenceProps = { fen: move?.fen || beforeFen, beforeFen, coaching: feedback || undefined, onVisual, activeVisual };
           const classification = feedback?.classification?.toLowerCase();
           const quality = classification && classifications.has(classification) ? classification : 'unclassified';
           const reason = ['inaccuracy', 'mistake', 'blunder'].includes(quality) ? feedback?.consequence : undefined;
@@ -30,11 +33,11 @@ export function LastMoveFeedback({ game, ply, onVisual, activeVisual }: { game: 
             <article key={color} className={`last-move-feedback-card ${quality}`} aria-label={t(color)}>
               <div className="last-move-feedback-heading">
                 <span><span className={`turn-dot ${color}`} aria-hidden="true" /><strong>{t(color)}</strong></span>
-                {move && <span className="last-move-feedback-san">{number}{color === 'white' ? '.' : '...'} {move.san}</span>}
+                {move && <span className="last-move-feedback-san">{number}{color === 'white' ? '.' : '...'} <ChessText {...referenceProps} text={move.san} /></span>}
               </div>
               {move ? <>
                 <strong className="last-move-feedback-quality">{t(quality as TranslationKey)}</strong>
-                <p>{reason || feedback?.text || feedback?.explanation || feedback?.assessment || t('feedbackUnavailable')}</p>
+                <p><ChessText {...referenceProps} text={reason || feedback?.text || feedback?.explanation || feedback?.assessment || t('feedbackUnavailable')} /></p>
                 {feedback && onVisual && index !== undefined && <FeedbackHighlights feedback={feedback} playedUci={move.uci} beforeFen={move.before_fen || (index === 0 ? game.initial_fen : game.moves[index - 1].fen)} onVisual={onVisual} activeVisual={activeVisual} />}
               </> : <p>{t('noMoves')}</p>}
             </article>

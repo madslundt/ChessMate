@@ -66,6 +66,41 @@ test.afterEach(async ({ page }) => {
   if (profile) await page.request.delete(`/api/profiles/${profile}`);
 });
 
+test("compare offers three legal practice choices and previews them without changing the game", async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  const headers = await setup(page);
+  await page.unroute("**/api/analysis");
+  const saved = (await (await page.request.get("/api/games", { headers })).json())[0];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/analysis" &&
+      response.request().postDataJSON()?.candidate_selection === "practice",
+    );
+    await page.getByRole("button", { name: "Compare 3 moves", exact: true }).click();
+    const result = await response;
+    expect(result.ok()).toBe(true);
+    const analysis = await result.json();
+    expect(new Set(analysis.candidates.map((c: { uci: string }) => c.uci)).size).toBe(3);
+    await expect(page.locator(".candidate-title")).toHaveCount(3);
+    for (const candidate of analysis.candidates) {
+      expect(saved.legal_moves).toContain(candidate.uci);
+      await expect(page.locator(".candidate-title").filter({ hasText: candidate.san })).toHaveCount(1);
+    }
+  }
+  await page.locator(".candidate-title").first().click();
+  await page.getByRole("button", { name: "Preview variation", exact: true }).first().click();
+  await expect(page.getByRole("region", { name: "Variation playback" })).toBeVisible();
+  await page.getByRole("button", { name: "Return to game", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Variation playback" })).toHaveCount(0);
+  const restored = await (await page.request.get(`/api/games/${saved.id}`, { headers })).json();
+  expect(restored.fen).toBe(saved.fen);
+  expect(restored.revision).toBe(saved.revision);
+  expect(restored.moves).toEqual([]);
+  expect(errors).toEqual([]);
+  await page.screenshot({ path: `/tmp/chessmate-compare-three-${info.project.name}.png`, fullPage: true, animations: "disabled" });
+});
+
 test("visual variation can be stepped, reversed, paused and returned without saving moves", async ({
   page,
 }, info) => {

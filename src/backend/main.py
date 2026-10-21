@@ -18,7 +18,7 @@ from .config import settings
 from .database import Base, SessionLocal, engine, get_db
 from .engine import EngineUnavailable, engine_service
 from .models import CoachingMessage, HintUsage, PositionAnalysis, User
-from .schemas import CoachRequest, HintRequest, PositionRequest, Preferences
+from .schemas import AnalysisRequest, CoachRequest, HintRequest, PositionRequest, Preferences
 from .views import AnalysisView, HintView
 from .training import router as training_router, seed_exercises
 from .llm_settings import router as llm_settings_router, connection_for
@@ -163,9 +163,12 @@ def position(data: PositionRequest) -> chess.Board:
 
 
 @api.post("/analysis", tags=["Analysis"], response_model=AnalysisView)
-def analyze(data: PositionRequest, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+def analyze(data: AnalysisRequest, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     board = position(data)
-    result = engine_service.analyze(board, time_ms=data.time_ms, depth=data.depth, candidates=data.candidates, mode=data.mode)
+    if data.candidate_selection == "practice":
+        result = engine_service.compare(board, time_ms=data.time_ms, depth=data.depth, mode=data.mode)
+    else:
+        result = engine_service.analyze(board, time_ms=data.time_ms, depth=data.depth, candidates=data.candidates, mode=data.mode)
     key = result.get("analysis_key")
     if key and not db.get(PositionAnalysis, key):
         # The database is an audit trail; the bounded in-process cache serves hot requests.

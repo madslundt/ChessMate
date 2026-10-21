@@ -36,6 +36,122 @@ def test_real_multipv_and_correct_black_perspective():
         for san in move["pv"]: variation.push_san(san)
 
 
+def test_practice_comparison_samples_legal_moves_and_keeps_a_good_choice(monkeypatch):
+    import copy
+    import src.backend.engine as module
+    from src.backend.engine import EngineService
+    service = EngineService()
+    board = chess.Board()
+    original = {"fen": board.fen(), "candidates": [
+        {"uci": uci, "cp": cp, "mate": None}
+        for uci, cp in [("e2e4", 30), ("d2d4", 20), ("g1f3", -80)]
+    ]}
+    before = copy.deepcopy(original)
+    calls = []
+
+    def search(root, root_moves=None, **kwargs):
+        assert root.fen() == board.fen()
+        calls.append((root_moves, kwargs))
+        if root_moves is None:
+            return original
+        return {"fen": root.fen(), "candidates": [
+            {"uci": move.uci(), "cp": 30 if move.uci() == "d2d4" else -200,
+             "mate": None, "pv_uci": [move.uci()]}
+            for move in root_moves
+        ]}
+
+    monkeypatch.setattr(service, "analyze", search)
+    def choose_good(choices):
+        assert {choice["uci"] for choice in choices} == {"e2e4", "d2d4"}
+        return choices[-1]
+    monkeypatch.setattr(module.random, "choice", choose_good)
+    def sample(choices, count):
+        assert count == 2
+        assert board.parse_san("d4") not in choices
+        assert set(choices) == set(board.legal_moves) - {board.parse_san("d4")}
+        return [board.parse_san("a3"), board.parse_san("h3")]
+    monkeypatch.setattr(module.random, "sample", sample)
+
+    result = service.compare(board, time_ms=100, depth=12)
+    assert {c["uci"] for c in result["candidates"]} == {"d2d4", "a2a3", "h2h3"}
+    assert len(result["candidates"]) == 3
+    assert len(calls) == 2
+    assert all(call[1] == {"time_ms": 100, "depth": 12, "candidates": 3} for call in calls)
+    assert original == before  # Do not replace cached ranked analysis with practice candidates.
+    assert board.fen() == chess.STARTING_FEN
+
+
+@pytest.mark.parametrize("fen", [
+    "8/8/8/8/8/6k1/5r2/7K w - - 0 1",  # Only Kh1-g1 is legal.
+    "8/8/8/8/5k2/8/8/r6K w - - 0 1",  # Two legal king moves.
+    "7k/6Q1/6K1/8/8/8/8/8 b - - 0 1",  # Checkmate.
+    "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1",  # Stalemate.
+])
+def test_practice_comparison_handles_fewer_than_three_choices(monkeypatch, fen):
+    from src.backend.engine import EngineService
+    service = EngineService()
+    board = chess.Board(fen)
+    legal = list(board.legal_moves)
+    def search(root, root_moves=None, **kwargs):
+        return {"fen": root.fen(), "candidates": [
+            {"uci": move.uci(), "cp": 0, "mate": None}
+            for move in (root_moves if root_moves is not None else legal)
+        ]}
+    monkeypatch.setattr(service, "analyze", search)
+    result = service.compare(board)
+    assert {c["uci"] for c in result["candidates"]} == {m.uci() for m in legal}
+
+
+@pytest.mark.parametrize("fen", [
+    chess.STARTING_FEN,
+    "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+    "7k/P7/8/8/8/8/8/7K w - - 0 1",
+])
+def test_practice_analysis_api_returns_fresh_evaluated_choices(signed, monkeypatch, fen):
+    import src.backend.engine as module
+    if not engine_service.path(): pytest.skip("Stockfish not installed")
+    # Keep the strongest candidate; change just the random alternatives between requests.
+    monkeypatch.setattr(module.random, "choice", lambda choices: choices[0])
+    samples = []
+    def sample(choices, count):
+        selected = choices[:count] if not samples else choices[-count:]
+        samples.append(selected)
+        return selected
+    monkeypatch.setattr(module.random, "sample", sample)
+    board = chess.Board(fen)
+    ranked = signed.post("/api/analysis", json={"fen": fen, "time_ms": 100}).json()
+    results = []
+    for _ in range(2):
+        response = signed.post("/api/analysis", json={
+            "fen": fen, "time_ms": 100, "candidates": 1, "candidate_selection": "practice",
+        })
+        assert response.status_code == 200, response.text
+        result = response.json()
+        choices = result["candidates"]
+        assert result["fen"] == fen
+        assert result["perspective"] == ("white" if board.turn else "black")
+        assert len({c["uci"] for c in choices}) == 3
+        assert ranked["candidates"][0]["uci"] in {c["uci"] for c in choices}
+        assert [score_number(c) for c in choices] == sorted([score_number(c) for c in choices], reverse=True)
+        for candidate in choices:
+            replay = board.copy()
+            assert candidate["pv_uci"][0] == candidate["uci"]
+            for uci in candidate["pv_uci"]:
+                move = chess.Move.from_uci(uci)
+                assert move in replay.legal_moves
+                replay.push(move)
+            assert candidate["insights"] and candidate["explanation"]
+            assert candidate["white_cp"] == (candidate["cp"] if board.turn else
+                                               -candidate["cp"] if candidate["cp"] is not None else None)
+        results.append({c["uci"] for c in choices})
+    assert results[0] != results[1]
+    # Normal evaluation keeps its ranked cache and respects the one-candidate preference.
+    normal = signed.post("/api/analysis", json={"fen": fen, "time_ms": 100, "candidates": 1})
+    assert normal.status_code == 200
+    assert len(normal.json()["candidates"]) == 1
+    assert signed.post("/api/analysis", json={"fen": fen, "time_ms": 100}).json() == ranked
+
+
 def test_specific_candidate_starts_from_identical_root():
     if not engine_service.path(): pytest.skip("Stockfish not installed")
     board = chess.Board()

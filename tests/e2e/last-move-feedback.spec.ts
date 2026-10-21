@@ -119,10 +119,13 @@ test('bad-move labels highlight threats and the better move on their own positio
     let body: unknown = [];
     if (pathname === '/api/profiles') body = [{ id: 'highlight-profile', name: 'Highlight test', preferences: {
       ...defaults, coaching_mode: 'independent', play_mode: 'coach_first', auto_computer: false,
-      visual_arrows: 'on_request', highlight_threats: false, highlight_pieces: false, animate_variations: false,
+      visual_arrows: 'on_request', highlight_threats: false, highlight_pieces: false, animate_variations: false, explanation_mode: 'text',
     } }];
     else if (pathname === '/api/games/feedback-highlights') body = game;
-    else if (pathname.endsWith('/conversation')) body = { messages: [] };
+    else if (pathname.endsWith('/conversation')) body = { messages: [
+      { id: 'reference-user', role: 'user', fen: initialFen, content: 'What about g1f3 and c6?' },
+      { id: 'reference-coach', role: 'assistant', fen: initialFen, content: 'Try 1.e4 e5 2.Nf3 Nc6. Watch the king on e1.' },
+    ] };
     else if (pathname.endsWith('/review')) body = { summary: '', topics: [] };
     else if (pathname === '/api/settings/speech') body = { stt_mode: 'browser', tts_mode: 'browser' };
     else if (pathname === '/api/analysis') body = { fen: route.request().postDataJSON().fen, candidates: [] };
@@ -138,6 +141,15 @@ test('bad-move labels highlight threats and the better move on their own positio
   const better = white.getByRole('button', { name: 'd4', exact: true });
   await expect(white).toContainText('A better move was d4.');
   await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
+  if (info.project.name === 'desktop') {
+    await threat.hover();
+    await expect(page.locator('[data-square="h4"] [data-piece="bQ"]')).toHaveCount(1);
+    await expect(page.locator('path[marker-end*="h4-e1"]')).toBeAttached();
+    await page.getByRole('heading', { name: 'Play', exact: true }).hover();
+    await expect(threat).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
+    await expect(page.locator('.board-explanation')).toHaveCount(0);
+  }
   await threat.click();
   await expect(threat).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-square="h4"] [data-piece="bQ"]')).toHaveCount(1);
@@ -155,12 +167,87 @@ test('bad-move labels highlight threats and the better move on their own positio
   await expect(page.locator('[data-square="g2"] [data-piece="wP"]')).toHaveCount(1);
   await expect(page.locator('[data-square="g4"] [data-piece="wP"]')).toHaveCount(0);
   await expect(page.locator('path[marker-end*="d2-d4"]')).toBeAttached();
+  if (info.project.name === 'desktop') {
+    // A temporary hover can show a different position without replacing a clicked highlight.
+    await threat.hover();
+    await expect(page.locator('[data-square="h4"] [data-piece="bQ"]')).toHaveCount(1);
+    await page.getByRole('heading', { name: 'Play', exact: true }).hover();
+    await expect(better).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('path[marker-end*="d2-d4"]')).toBeAttached();
+    await expect(page.locator('[data-square="g2"] [data-piece="wP"]')).toHaveCount(1);
+  }
   await page.getByRole('button', { name: 'Flip board', exact: true }).click();
   await expect(page.locator('path[marker-end*="d2-d4"]')).toBeAttached();
   await page.screenshot({ path: `/tmp/chessmate-improvement-label-${info.project.name}.png`, fullPage: true });
   await page.getByRole('button', { name: 'Clear board explanation', exact: true }).click();
   await expect(better).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('[data-square="g4"] [data-piece="wP"]')).toHaveCount(1);
+  await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
+  // Inline feedback, square names, and historical chat references work in text-only mode,
+  // even when automatic highlights are disabled. Explicit clicks never play moves.
+  const inlineThreat = white.getByRole('button', { name: 'Qh4', exact: true });
+  if (info.project.name === 'desktop') {
+    await inlineThreat.hover();
+    await expect(page.locator('path[marker-end*="d8-h4"]')).toBeAttached();
+    await page.screenshot({ path: '/tmp/chessmate-hover-feedback-desktop.png', fullPage: true });
+    await page.getByRole('heading', { name: 'Play', exact: true }).hover();
+    await expect(page.locator('path[marker-end*="d8-h4"]')).toHaveCount(0);
+    await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
+  }
+  await inlineThreat.click();
+  await expect(inlineThreat).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('path[marker-end*="d8-h4"]')).toBeAttached();
+  await page.getByRole('button', { name: 'Clear board explanation', exact: true }).click();
+  const played = white.locator('.last-move-feedback-san').getByRole('button', { name: 'g4', exact: true });
+  await played.click();
+  await expect(page.locator('path[marker-end*="g2-g4"]')).toBeAttached();
+  await played.click();
+  const user = page.locator('.chat-message.user');
+  const assistant = page.locator('.chat-message.assistant');
+  if (info.project.name === 'desktop') {
+    await user.getByRole('button', { name: 'g1f3', exact: true }).hover();
+    await expect(page.locator('path[marker-end*="g1-f3"]')).toBeAttached();
+    await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(0);
+    await assistant.getByRole('button', { name: 'e1', exact: true }).hover();
+    await expect(page.locator('[data-square="e1"] .board-square')).toHaveCSS('box-shadow', 'rgb(213, 148, 49) 0px 0px 0px 4px inset');
+    await expect(page.locator('path[marker-end*="g1-f3"]')).toHaveCount(0);
+    await page.screenshot({ path: '/tmp/chessmate-hover-square-desktop.png', fullPage: true });
+    await page.getByRole('heading', { name: 'Play', exact: true }).hover();
+    await expect(page.locator('.board-explanation')).toHaveCount(0);
+    await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
+  }
+  if (info.project.name === 'desktop') {
+    const userMove = user.getByRole('button', { name: 'g1f3', exact: true });
+    const chatSquare = assistant.getByRole('button', { name: 'e1', exact: true });
+    // Mouse and keyboard previews restore one another, whichever was activated last.
+    await userMove.focus();
+    await chatSquare.hover();
+    await expect(page.locator('path[marker-end*="g1-f3"]')).toHaveCount(0);
+    await page.getByRole('heading', { name: 'Play', exact: true }).hover();
+    await expect(page.locator('path[marker-end*="g1-f3"]')).toBeAttached();
+    await userMove.blur();
+    await expect(page.locator('.board-explanation')).toHaveCount(0);
+    await userMove.hover();
+    await chatSquare.focus();
+    await page.getByRole('heading', { name: 'Play', exact: true }).hover();
+    await expect(page.locator('[data-square="e1"] .board-square')).toHaveCSS('box-shadow', 'rgb(213, 148, 49) 0px 0px 0px 4px inset');
+    await chatSquare.blur();
+    await expect(page.locator('.board-explanation')).toHaveCount(0);
+  }
+  await user.getByRole('button', { name: 'g1f3', exact: true }).click();
+  await expect(page.locator('path[marker-end*="g1-f3"]')).toBeAttached();
+  await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(0);
+  const square = assistant.getByRole('button', { name: 'e1', exact: true });
+  await square.focus();
+  await page.keyboard.press('Enter');
+  await expect(square).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-square="e1"] .board-square')).toHaveCSS('box-shadow', 'rgb(213, 148, 49) 0px 0px 0px 4px inset');
+  await assistant.getByRole('button', { name: 'Nc6', exact: true }).click();
+  await expect(page.locator('path[marker-end*="b8-c6"]')).toBeAttached();
+  await expect(page.locator('[data-square="f3"] [data-piece="wN"]')).toHaveCount(1);
+  await expect(page.locator('[data-square="e5"] [data-piece="bP"]')).toHaveCount(1);
+  await page.screenshot({ path: `/tmp/chessmate-inline-references-${info.project.name}.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Clear board explanation', exact: true }).click();
   await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
   // The same controls work in the coaching timeline and the game review.
   const coach = page.locator('.move-feedback-entry.white.blunder');

@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { createContext, useCallback, useEffect, useState } from 'react';
 import { Chess } from 'chess.js';
 import type { Preferences, VisualInsight } from './types';
+
+export const BoardVisualPreviewContext = createContext<(insight: VisualInsight | null, owner: string) => void>(() => {});
 
 export function useBoardVisuals({ fen, preferences, highlightedMove, exploring, lastMove, retryPosition }: {
   fen: string;
@@ -11,8 +13,20 @@ export function useBoardVisuals({ fen, preferences, highlightedMove, exploring, 
   retryPosition: (fen: string) => void;
 }) {
   const [selection, setSelection] = useState<{ insight: VisualInsight; origin: string } | null>(null);
-  const visual = selection?.insight;
-  const feedback = visual?.id.startsWith('feedback-') && selection?.origin === fen;
+  const [previews, setPreviews] = useState<{ insight: VisualInsight; origin: string; owner: string }[]>([]);
+  useEffect(() => setPreviews([]), [fen]);
+  const previewVisual = useCallback((insight: VisualInsight | null, owner: string) => {
+    if (insight) {
+      try { new Chess(insight.fen); } catch { return; }
+    }
+    setPreviews((current) => {
+      const remaining = current.filter((preview) => preview.owner !== owner);
+      return insight ? [...remaining, { insight, origin: fen, owner }] : remaining;
+    });
+  }, [fen]);
+  const displayed = previews.filter((preview) => preview.origin === fen).at(-1) || selection;
+  const visual = displayed?.insight;
+  const feedback = visual?.id.startsWith('feedback-') && displayed?.origin === fen;
   const activeVisual = visual && (feedback || visual.fen === fen) ? visual : null;
   const threat = /threat|attack|pin|fork|skewer|exposed|reply/i.test(`${activeVisual?.claim_type || ''} ${activeVisual?.id || ''}`);
   const visible = !feedback && preferences.highlight_threats === false && threat ? null : activeVisual;
@@ -23,8 +37,10 @@ export function useBoardVisuals({ fen, preferences, highlightedMove, exploring, 
     activeVisual, arrows,
     feedbackFen: feedback ? visual?.fen : undefined,
     targets: !feedback && preferences.highlight_pieces === false && visible?.id !== 'hint-guide' ? [] : visible?.squares,
-    clearVisual: () => setSelection(null),
+    previewVisual,
+    clearVisual: () => { setSelection(null); setPreviews([]); },
     showVisual: (insight: VisualInsight) => {
+      setPreviews([]);
       if (insight.id.startsWith('feedback-')) {
         try { new Chess(insight.fen); } catch { return; }
         setSelection((current) => current?.origin === fen && current.insight.id === insight.id && current.insight.fen === insight.fen ? null : { insight, origin: fen });

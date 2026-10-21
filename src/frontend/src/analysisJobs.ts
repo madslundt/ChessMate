@@ -18,7 +18,7 @@ export async function runAnalysis(
   if (mode === "quick")
     return api<Analysis>(
       "/analysis",
-      { fen, ...budget, mode, candidates: 3 },
+      { fen, ...budget, mode, candidates: 3, candidate_selection: "practice" },
       undefined,
       signal,
     );

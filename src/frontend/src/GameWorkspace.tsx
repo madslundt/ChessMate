@@ -31,7 +31,7 @@ import { VariationPlayer } from './VariationPlayer';
 import { ErrorNotice, PageHeading, Spinner } from './components';
 import { GameLoading, GameSetup, ImportModal } from './GameDialogs';
 import { useGameWorkspace, type WorkspaceProps } from './useGameWorkspace';
-import { useBoardVisuals } from './useBoardVisuals';
+import { BoardVisualPreviewContext, useBoardVisuals } from './useBoardVisuals';
 import { PostGameSummary } from './GameReview';
 import type { Exercise, Game, VisualInsight } from './types';
 import { analysisPath, learnPath, navigate, Link } from './navigation';
@@ -88,7 +88,7 @@ export function GameWorkspace(props: WorkspaceProps) {
   const [pinnedMove, setPinnedMove] = useState<string | null | undefined>(undefined);
   const [squareAnswer, setSquareAnswer] = useState<((square: string) => void) | null>(null);
   const highlightedMove = hoveredMove ?? pinnedMove;
-  const { activeVisual, arrows, targets, feedbackFen, showVisual, clearVisual } = useBoardVisuals({ fen, preferences, highlightedMove, exploring: !!explore, lastMove, retryPosition });
+  const { activeVisual, arrows, targets, feedbackFen, showVisual, clearVisual, previewVisual } = useBoardVisuals({ fen, preferences, highlightedMove, exploring: !!explore, lastMove, retryPosition });
   function highlightVisual(insight: VisualInsight) {
     setHoveredMove(null); setPinnedMove(null); showVisual(insight);
   }
@@ -112,7 +112,7 @@ export function GameWorkspace(props: WorkspaceProps) {
     );
   }
   return (
-    <>
+    <BoardVisualPreviewContext.Provider value={previewVisual}>
       {analysisMode && (
         <Link className="text-button back-button" href="/analyze">
           <ArrowLeft size={16} />
@@ -492,6 +492,6 @@ export function GameWorkspace(props: WorkspaceProps) {
           }}
         />
       )}
-    </>
+    </BoardVisualPreviewContext.Provider>
   );
 }

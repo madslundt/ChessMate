@@ -40,3 +40,9 @@
   margin: 7px 0 0;
   font-size: 12px;
 }
+
+.chess-text-reference {
+  padding: 0 2px;
+  font-weight: inherit;
+  vertical-align: baseline;
+}

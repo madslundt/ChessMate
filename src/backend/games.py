@@ -242,7 +242,9 @@ def undo(game_id: str, data: Revision, user: User = Depends(current_user), db: S
     if game.mode not in ("training", "analysis"): raise HTTPException(409, "Undo is available in training and analysis games")
     if not game.moves: raise HTTPException(409, "No moves to undo")
     count = 1
-    if game.mode == "training" and game.moves[-1]["source"] == "computer" and len(game.moves) >= 2: count = 2
+    # After an opponent reply, take back the player's move along with that reply.
+    if game.mode == "training" and len(game.moves) >= 2 and board_for(game).turn == (game.player_color == "white"):
+        count = 2
     removed = game.moves[-count:]
     game.moves = game.moves[:-count]
     commit_event(db, game, "undo", {"removed": removed})
