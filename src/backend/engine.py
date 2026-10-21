@@ -217,6 +217,7 @@ class EngineService:
                     "reply": san_pv[1] if len(san_pv) > 1 else None,
                     "risk": "Check the principal variation; a search estimate is not a proof of every continuation."})
             if result["candidates"]:
+                result["candidates"].sort(key=score_number, reverse=True)
                 best = result["candidates"][0]
                 for candidate in result["candidates"]:
                     candidate["difference_cp"] = max(0, score_number(best) - score_number(candidate))

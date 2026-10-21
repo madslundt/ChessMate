@@ -36,6 +36,42 @@ def test_real_multipv_and_correct_black_perspective():
         for san in move["pv"]: variation.push_san(san)
 
 
+@pytest.mark.parametrize("black", [False, True])
+def test_analysis_ranks_out_of_order_multipv_before_comparison_and_cache(monkeypatch, black):
+    from unittest.mock import Mock
+    from src.backend.engine import EngineService
+
+    service = EngineService()
+    board = chess.Board()
+    if black:
+        board.push_san("e4")
+    sans = ["d5", "e5", "Nf6"] if black else ["d4", "e4", "Nf3"]
+    infos = [
+        {"pv": [board.parse_san(san)], "score": chess.engine.PovScore(chess.engine.Cp(cp), board.turn), "depth": depth}
+        for san, cp, depth in zip(sans, [23, 569, 50], [12, 14, 13])
+    ]
+    engine = Mock()
+    engine.analyse.return_value = infos
+    monkeypatch.setattr(service, "_get_engine", lambda: engine)
+
+    result = service.analyze(board, time_ms=100)
+    choices = result["candidates"]
+    assert [choice["san"] for choice in choices] == [sans[1], sans[2], sans[0]]
+    assert [choice["cp"] for choice in choices] == [569, 50, 23]
+    assert [choice["difference_cp"] for choice in choices] == [0, 519, 546]
+    assert [choice["similar_to_best"] for choice in choices] == [True, False, False]
+    assert [choice["depth"] for choice in choices] == [14, 13, 12]
+    for choice in choices:
+        assert choice["white_cp"] == (-choice["cp"] if black else choice["cp"])
+        assert choice["pv"] == [choice["san"]]
+        assert choice["pv_uci"] == [choice["uci"]]
+        assert choice["facts"]["from"] == choice["uci"][:2]
+        assert choice["facts"]["to"] == choice["uci"][2:4]
+        assert choice["insights"] and choice["variations"]
+    assert service.analyze(board, time_ms=100) == result
+    engine.analyse.assert_called_once()
+
+
 def test_practice_comparison_samples_legal_moves_and_keeps_a_good_choice(monkeypatch):
     import copy
     import src.backend.engine as module
