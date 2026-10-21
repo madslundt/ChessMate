@@ -260,6 +260,7 @@ async function reviewedGame(page: Page, playerColor: 'white' | 'black' = 'white'
     else if (path === `/api/games/${game.id}`) json = game;
     else if (path === `/api/games/${game.id}/review`) json = review;
     else if (path === `/api/games/${game.id}/conversation`) json = { messages: [] };
+    else if (path === '/api/settings/speech') json = { stt_mode: 'browser', tts_mode: 'browser' };
     else if (path === '/api/analysis') {
       analysisRequests.push(request.postDataJSON());
       json = { fen: request.postDataJSON().fen, candidates: [] };
@@ -401,11 +402,18 @@ test('blunder review explains the consequence and previews at most three better 
   const saved = JSON.stringify(game);
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
   await page.goto(`/analyze/${game.id}`);
+  await expect(page).toHaveTitle(/Chessmate/);
+  await expect(page).toHaveURL(`/analyze/${game.id}`);
+  await expect(page.locator('vite-error-overlay')).toHaveCount(0);
   await page.locator('.review-move').filter({ hasText: 'g4' }).click();
+  await page.getByRole('button', { name: 'Reveal engine feedback', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Why this was bad', exact: true })).toBeVisible();
   await expect(page.locator('.review-decision')).toContainText(String(game.moves[2].feedback?.consequence));
-  await expect(page.getByRole('heading', { name: 'Better moves', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Preview / })).toHaveCount(0);
+  await page.getByRole('region', { name: 'Why this was bad', exact: true }).screenshot({ path: `/tmp/chessmate-bad-move-reason-${info.project.name}.png` });
+  await page.getByRole('button', { name: 'Better moves', exact: true }).click();
   await expect(page.getByRole('button', { name: /^Preview / })).toHaveCount(3);
   for (const san of ['d4', 'e4', 'g3']) {
     await expect(page.getByRole('button', { name: `Preview ${san}`, exact: true })).toBeVisible();
@@ -447,7 +455,10 @@ test('older blunder feedback loads better moves for the position before the deci
   });
   await page.goto(`/analyze/${game.id}`);
   await page.locator('.review-move').filter({ hasText: 'g4' }).click();
+  await page.getByRole('button', { name: 'Reveal engine feedback', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Why this was bad', exact: true })).toBeVisible();
+  expect(requested).toEqual([]);
+  await page.getByRole('button', { name: 'Better moves', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Preview d4', exact: true })).toBeVisible();
   // Without a recorded played score, only the top fresh candidate is confirmed.
   await expect(page.getByRole('button', { name: /^Preview / })).toHaveCount(1);
@@ -466,9 +477,10 @@ test('blunder explanation stays available when fresh better-move analysis fails'
   });
   await page.goto(`/analyze/${game.id}`);
   await page.locator('.review-move').filter({ hasText: 'g4' }).click();
+  await page.getByRole('button', { name: 'Reveal engine feedback', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Why this was bad', exact: true })).toBeVisible();
   await expect(page.locator('.review-decision')).toContainText('Check the threat to your king');
-  await expect(page.getByRole('heading', { name: 'Better moves', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Better moves', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Analysis is temporarily unavailable.');
   await expect(page.getByRole('button', { name: /^Preview / })).toHaveCount(0);
   await page.getByRole('button', { name: 'After move', exact: true }).click();

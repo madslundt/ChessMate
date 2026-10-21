@@ -103,3 +103,74 @@ def test_practice_opponent_is_isolated_and_strongest_level_preserves_analysis(mo
     assert practice_calls == [(level, module.random) for level in range(1, 5)]
     assert service.play(chess.Board(), 5).uci() == "e2e4"
     assert calls == [{"time_ms": 700, "candidates": 3}]
+
+
+def grade_line(monkeypatch, board, played_san, line, best_san, language="en"):
+    from src.backend.engine import EngineService
+    service = EngineService()
+    move = board.parse_san(played_san)
+    replay = board.copy()
+    pv = [replay.push_san(san).uci() for san in line]
+    def search(root, root_moves=None, **kwargs):
+        selected = move if root_moves else root.parse_san(best_san)
+        return {"fen": root.fen(), "candidates": [{"uci": selected.uci(), "san": root.san(selected),
+            "cp": -250 if root_moves else 50, "mate": None, "depth": 15,
+            "pv": line if root_moves else [best_san], "pv_uci": pv if root_moves else [selected.uci()]}]}
+    monkeypatch.setattr(service, "analyze", search)
+    return service.grade(board, move, language=language)
+
+
+@pytest.mark.parametrize("language", ["en", "da"])
+@pytest.mark.parametrize("black", [False, True])
+def test_bad_move_explains_material_lost_in_played_line(monkeypatch, language, black):
+    board = chess.Board()
+    board.push_san("e4")
+    board.push_san("d5")
+    moves = [board.parse_san("a3")]
+    after = board.copy()
+    after.push(moves[0])
+    moves.append(after.parse_san("dxe4"))
+    best = board.parse_san("exd5")
+    if black:
+        board = board.mirror()
+        moves = [chess.Move(chess.square_mirror(m.from_square), chess.square_mirror(m.to_square)) for m in moves]
+        best = chess.Move(chess.square_mirror(best.from_square), chess.square_mirror(best.to_square))
+    replay = board.copy()
+    line = []
+    for move in moves:
+        line.append(replay.san(move))
+        replay.push(move)
+    feedback = grade_line(monkeypatch, board, line[0], line, board.san(best), language)
+    reason = feedback["consequence"]
+    assert feedback["classification"] == "Blunder"
+    assert board.san(best) not in reason
+    assert ("net loss of material worth 1 pawn" if language == "en" else "nettotab af materiale svarende til 1 bonde") in reason
+    victim = "pawn on e5" if black else "pawn on e4"
+    assert (victim if language == "en" else "bonde") in reason
+    assert ("other replies" if language == "en" else "andre svar") in reason.lower()
+
+
+@pytest.mark.parametrize("language", ["en", "da"])
+def test_bad_move_without_verified_cause_does_not_substitute_a_better_move(monkeypatch, language):
+    feedback = grade_line(monkeypatch, chess.Board(), "a3", ["a3", "e5"], "e4", language)
+    assert "e4" not in feedback["consequence"]
+    assert ("not been verified" if language == "en" else "ikke verificeret") in feedback["consequence"]
+
+
+@pytest.mark.parametrize("language", ["en", "da"])
+def test_bad_capture_explanation_does_not_recommend_an_alternative(monkeypatch, language):
+    board = chess.Board()
+    board.push_san("e4")
+    board.push_san("d5")
+    feedback = grade_line(monkeypatch, board, "exd5", ["exd5", "Qxd5"], "Nc3", language)
+    assert "Nc3" not in feedback["consequence"]
+    assert "d5" in feedback["consequence"]
+    assert "net loss" not in feedback["consequence"]
+    assert "nettotab" not in feedback["consequence"]
+
+
+def test_bad_move_explains_en_passant_capture_on_the_victims_square(monkeypatch):
+    board = chess.Board("4k3/8/8/8/7p/8/6P1/4K3 w - - 0 1")
+    feedback = grade_line(monkeypatch, board, "g4", ["g4", "hxg3"], "Kd2")
+    assert "pawn on g4" in feedback["consequence"]
+    assert "net loss of material worth 1 pawn" in feedback["consequence"]

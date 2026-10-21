@@ -62,6 +62,32 @@ def classify_move(best: dict, played: dict, forced: bool = False, depth: int = 0
             "win_chance_loss": round(chance_loss, 3)}
 
 
+def _material_loss_reason(board: chess.Board, variation: dict, language: str) -> str:
+    """Explain material lost in the legal played line, without calling it forced."""
+    loss = -variation["material_change"]
+    if loss <= 0 or variation["terminal"]:
+        return ""
+    replay = board.copy()
+    victims = []
+    for value in variation["moves"]:
+        move = chess.Move.from_uci(value)
+        if replay.turn != board.turn and replay.is_capture(move):
+            square = move.to_square + (-8 if replay.turn else 8) if replay.is_en_passant(move) else move.to_square
+            victims.append((replay.piece_type_at(square), chess.square_name(square)))
+        replay.push(move)
+    detail = ""
+    if victims:
+        piece, square = max(victims, key=lambda item: {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}[item[0]])
+        name = chess.piece_name(piece)
+        if language == "da":
+            name = {"pawn": "bonde", "knight": "springer", "bishop": "løber", "rook": "tårn", "queen": "dronning"}[name]
+            detail = f"I motorvarianten efter dit træk slår modstanderen din {name} på {square}. "
+        else:
+            detail = f"In the engine continuation after your move, the opponent captures your {name} on {square}. "
+    return detail + (f"Ved slutningen af denne variant har din side et nettotab af materiale svarende til {loss} {'bonde' if loss == 1 else 'bønder'}. Andre svar kan ændre resultatet." if language == "da" else
+                     f"By the end of this continuation, your side has a net loss of material worth {loss} {'pawn' if loss == 1 else 'pawns'}. Other replies may change the result.")
+
+
 class EngineService:
     def __init__(self, deep_worker: bool = False):
         self._engine: chess.engine.SimpleEngine | None = None
@@ -269,8 +295,10 @@ class EngineService:
         after = board.copy()
         after.push(move)
         resulting = observations(after)
-        own = "white" if board.turn else "black"
         exposed = facts.get("newly_exposed_own", [])
+        insights, variations = move_insights(board, played, language)
+        strategy = candidate_strategy(board, played, language, complexity)
+        material_reason = _material_loss_reason(board, variations[0], language) if variations else ""
         consequence = ""
         reply_san, reply_mates = None, False
         if len(played.get("pv_uci", [])) > 1:
@@ -298,6 +326,8 @@ class EngineService:
                     if reply_san:
                         consequence += (f" I motorvarianten svarer modstanderen med {reply_san}." if language == "da" else
                                         f" In the engine continuation, the opponent replies {reply_san}.")
+            elif material_reason:
+                consequence = material_reason
             elif exposed:
                 squares = ", ".join(p["square"] for p in exposed[:2])
                 removed = [p["square"] for p in facts.get("removed_geometric_support", []) if p["square"] in squares.split(", ")]
@@ -310,25 +340,15 @@ class EngineService:
             elif facts.get("legal_reply_captures"):
                 consequence = (f"Modstanderen kan lovligt slå din brik på {facts['to']}. Undersøg hele byttefølgen." if language == "da" else
                                f"The opponent has a legal capture of the moved piece on {facts['to']}. Examine the full exchange.")
-                loss = assessment["loss_cp"] / 100
-                consequence += (f" Søgningen vurderer trækket cirka {loss:.1f} bonde under {best['san']}; slaget alene beviser ikke årsagen." if language == "da" else
-                                f" The search rates the move about {loss:.1f} pawns below {best['san']}; that capture alone does not establish the reason.")
+                consequence += (" Slaget alene beviser ikke, at du taber materiale eller forklarer hele vurderingen." if language == "da" else
+                                " That capture alone does not prove a material loss or explain the full assessment.")
             else:
-                reply = played.get("pv", [])[1] if len(played.get("pv", [])) > 1 else None
-                loss = assessment["loss_cp"] / 100
-                if language == "da":
-                    consequence = (f"Motorens bedste valg var {best['san']}. Dens bedste fortsættelse efter dit træk er "
-                                   f"{reply}; trækket giver cirka {loss:.1f} bonde i vurdering sammenlignet med bedste valg."
-                                   if reply else
-                                   f"Motorens bedste valg var {best['san']}; dit træk giver cirka {loss:.1f} bonde i vurdering.")
-                else:
-                    consequence = (f"The engine's top choice was {best['san']}. Its strongest reply to your move is {reply}; "
-                                   f"your move gives up about {loss:.1f} pawns of evaluation compared with that choice."
-                                   if reply else
-                                   f"The engine's top choice was {best['san']}; your move gives up about {loss:.1f} pawns of evaluation.")
+                consequence = ("Søgningen vurderer stillingen efter dit træk som svagere, men en konkret taktisk eller positionel årsag er ikke verificeret." if language == "da" else
+                               "The search evaluates the position after your move as weaker, but a concrete tactical or positional reason has not been verified.")
+                if reply_san:
+                    consequence += (f" I motorvarianten svarer modstanderen med {reply_san}." if language == "da" else
+                                    f" In the engine continuation, the opponent replies {reply_san}.")
             text = f"{label}. {consequence}"
-        insights, variations = move_insights(board, played, language)
-        strategy = candidate_strategy(board, played, language, complexity)
         insights.extend(strategy["effects"])
         if strategy["effects"] and assessment["classification"] in ("Best", "Excellent", "Good") and not facts["capture"] and not facts["check"]:
             text = f"{label}. {move_idea(facts, language)} {strategy['plan']}"

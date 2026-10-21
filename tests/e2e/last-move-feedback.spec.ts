@@ -16,6 +16,10 @@ test('both sides keep readable move feedback below the board across moves, tabs 
         'White takes space in the center.', 'Black overlooks a tactical threat.', 'White develops the knight toward the center.',
       ][index] } };
   });
+  Object.assign(moves[1].feedback, {
+    text: 'The engine preferred c5 instead.',
+    consequence: 'Black overlooks a tactical threat.',
+  });
   let game: Game = { id: 'last-feedback', initial_fen: initialFen, fen: moves[1].fen, moves: moves.slice(0, 2), revision: 2,
     mode: 'training', player_color: 'white', difficulty: 2, status: 'playing', result: '*' };
   await page.route('**/api/**', async (route) => {
@@ -47,6 +51,12 @@ test('both sides keep readable move feedback below the board across moves, tabs 
   await expect(white).toContainText('White takes space in the center.');
   await expect(black).toContainText('1... e5');
   await expect(black).toContainText('Black overlooks a tactical threat.');
+  await expect(black).not.toContainText('The engine preferred');
+  const coachFeedback = page.locator('.move-feedback-entry.black');
+  await expect(coachFeedback).toContainText('Black overlooks a tactical threat.');
+  await expect(coachFeedback).not.toContainText('The engine preferred');
+  await coachFeedback.getByRole('button', { name: 'Why was it bad?', exact: true }).click();
+  await expect(coachFeedback.locator('.move-feedback-explanation')).toHaveText('Black overlooks a tactical threat.');
   await expect(white).toHaveCSS('border-left-color', 'rgb(40, 112, 71)');
   await expect(black).toHaveCSS('border-left-color', 'rgb(165, 65, 60)');
   const boardBounds = await page.getByTestId('chessboard').boundingBox();

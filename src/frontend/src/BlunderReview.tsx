@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Chess } from 'chess.js';
 import { api } from './api';
@@ -49,6 +50,7 @@ export function BlunderReview({
   onPreview: (candidate: Candidate) => void;
 }) {
   const t = useT();
+  const [showAlternatives, setShowAlternatives] = useState(false);
   const stored = feedback.alternatives?.length ? feedback.alternatives : feedback.best ? [feedback.best] : [];
   const analysis = useQuery({
     queryKey: ['blunder-alternatives', beforeFen, preferences.analysis_time_ms, preferences.analysis_depth],
@@ -64,7 +66,7 @@ export function BlunderReview({
         undefined,
         signal,
       ),
-    enabled: !stored.length,
+    enabled: showAlternatives && !stored.length,
     retry: false,
     staleTime: 60000,
   });
@@ -82,8 +84,8 @@ export function BlunderReview({
         </p>
       )}
       {feedback.played && <button className="outline-button" onClick={() => onPreview(feedback.played!)}>{t('watchConsequence')}</button>}
-      <h4>{t('reviewBetterMoves')}</h4>
-      {analysis.isFetching ? (
+      <button className="text-button" aria-expanded={showAlternatives} onClick={() => setShowAlternatives((current) => !current)}>{t('reviewBetterMoves')}</button>
+      {showAlternatives && (analysis.isFetching ? (
         <Spinner label={t('thinking')} />
       ) : analysis.isError ? (
         <>
@@ -111,7 +113,7 @@ export function BlunderReview({
             </li>
           ))}
         </ol>
-      )}
+      ))}
     </section>
   );
 }

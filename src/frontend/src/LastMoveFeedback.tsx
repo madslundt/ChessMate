@@ -23,6 +23,7 @@ export function LastMoveFeedback({ game, ply }: { game: Game; ply: number }) {
           const feedback = move?.feedback;
           const classification = feedback?.classification?.toLowerCase();
           const quality = classification && classifications.has(classification) ? classification : 'unclassified';
+          const reason = ['inaccuracy', 'mistake', 'blunder'].includes(quality) ? feedback?.consequence : undefined;
           const number = index === undefined ? null : firstMove + Math.floor((index + (initialBlack ? 1 : 0)) / 2);
           return (
             <article key={color} className={`last-move-feedback-card ${quality}`} aria-label={t(color)}>
@@ -32,7 +33,7 @@ export function LastMoveFeedback({ game, ply }: { game: Game; ply: number }) {
               </div>
               {move ? <>
                 <strong className="last-move-feedback-quality">{t(quality as TranslationKey)}</strong>
-                <p>{feedback?.text || feedback?.explanation || feedback?.assessment || t('feedbackUnavailable')}</p>
+                <p>{reason || feedback?.text || feedback?.explanation || feedback?.assessment || t('feedbackUnavailable')}</p>
               </> : <p>{t('noMoves')}</p>}
             </article>
           );

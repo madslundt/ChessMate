@@ -73,6 +73,7 @@ function MoveFeedbackEntry({
   const expandedKey = `${game.id}-${index}-${move.uci}`;
   const activeExplanation = expanded[expandedKey];
   const threatInsights = feedback.insights?.filter((insight) => /threat|attack|check|defen|pin|fork|tactic/i.test(`${insight.claim_type || ''} ${insight.id} ${insight.text}`)) || [];
+  const summary = (isBadMove && feedback.consequence) || feedback.text || feedback.explanation || feedback.assessment;
   const explanation = activeExplanation === 'bad'
     ? feedback.consequence || feedback.explanation || feedback.text || feedback.assessment
     : activeExplanation === 'good'
@@ -98,8 +99,8 @@ function MoveFeedbackEntry({
       {feedback.actor === 'opponent' && <small>{t('opponentMove')}</small>}
       <ConfidenceBadge mode={feedback.analysis_mode} confidence={feedback.confidence} />
       <ExplanationText mode={preferences.explanation_mode}>
-        <p>{feedback.text || feedback.explanation || feedback.assessment}</p>
-        {feedback.consequence && feedback.consequence !== feedback.text && <p>{feedback.consequence}</p>}
+        <p>{summary}</p>
+        {!isBadMove && feedback.consequence && feedback.consequence !== summary && <p>{feedback.consequence}</p>}
       </ExplanationText>
       {activeExplanation === 'threats' && (threatInsights.length ? <div className="move-threat-details">{threatInsights.map((insight) => <p key={insight.id}>{insight.text}</p>)}{threatInsights.some((insight) => insight.fen === currentFen) && <VisualExplanation coaching={{ insights: threatInsights.filter((insight) => insight.fen === currentFen) }} onVisual={onVisual} onPreview={onPreview} />}</div> : <p className="muted">{t('threatsUnavailable')}</p>)}
       <div className="visual-explanation-actions move-feedback-actions">
