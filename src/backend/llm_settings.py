@@ -1,10 +1,12 @@
 """Account-owned inference connections. Credentials never enter coaching context or responses."""
 from dataclasses import dataclass, field
+import asyncio
 import json
 import ssl
 from urllib.parse import urlsplit
 
 import httpx
+import chess
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import SecretStr, StrictBool, ValidationError, field_validator, model_validator
 from sqlalchemy.orm import Session
@@ -13,7 +15,7 @@ from .auth import current_user
 from .config import settings, llm_tls_context
 from .database import get_db
 from .models import LlmConnection, User
-from .schemas import Input
+from .schemas import Input, Preferences
 
 router = APIRouter(prefix="/settings/llm", tags=["Settings"])
 
@@ -111,51 +113,6 @@ def connection_verifies_tls(draft: EndpointInput, previous: Connection) -> bool:
     return previous.verify_tls if draft.base_url == previous.base_url else True
 
 
-def _test_reply(payload: object) -> str | None:
-    if not isinstance(payload, dict):
-        return None
-
-    def text_content(value: object) -> str | None:
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        if isinstance(value, list):
-            parts = [item.get("text", "") for item in value
-                     if isinstance(item, dict) and isinstance(item.get("text"), str)]
-            result = "".join(parts).strip()
-            return result or None
-        return None
-
-    reply = text_content(payload.get("output_text"))
-    if reply:
-        return reply
-    message = payload.get("message")
-    reply = text_content(message.get("content")) if isinstance(message, dict) else None
-    reply = reply or text_content(payload.get("response")) or text_content(payload.get("text"))
-    if reply:
-        return reply
-    choices = payload.get("choices")
-    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
-        choice = choices[0]
-        message = choice.get("message")
-        reply = text_content(message.get("content")) if isinstance(message, dict) else None
-        reply = reply or text_content(choice.get("text"))
-        if reply:
-            return reply
-        # Some reasoning models spend a small test budget on reasoning and return
-        # an otherwise valid completion with no user-facing content.
-        if isinstance(message, dict) or isinstance(choice.get("finish_reason"), str):
-            return "The model responded successfully."
-    output = payload.get("output")
-    if isinstance(output, list):
-        for item in output:
-            if not isinstance(item, dict):
-                continue
-            reply = text_content(item.get("content"))
-            if reply:
-                return reply
-    return None
-
-
 @router.post("/models")
 async def list_models(data: dict, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     try:
@@ -217,6 +174,9 @@ async def list_models(data: dict, user: User = Depends(current_user), db: Sessio
 
 @router.post("/test")
 async def test_connection(data: dict, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    # CoachService uses Connection too; import here to avoid a module import cycle.
+    from .coach import coach_service
+
     try:
         draft = ConnectionInput.model_validate(data)
     except ValidationError as exc:
@@ -226,63 +186,26 @@ async def test_connection(data: dict, user: User = Depends(current_user), db: Se
     previous = connection_for(db, user)
     key = connection_key(draft, previous)
     verify_tls = connection_verifies_tls(draft, previous)
-    base_url = draft.base_url if draft.base_url.endswith("/v1") else draft.base_url + "/v1"
-    headers = {"Authorization": f"Bearer {key}"} if key else {}
-    payload = {
-        "model": draft.model,
-        "messages": [{"role": "user", "content": "Reply with the single word OK."}],
-        "max_tokens": 128,
-        "stream": False,
-    }
-    try:
-        async with httpx.AsyncClient(timeout=20, verify=llm_tls_context() if verify_tls else False) as client:
-            response = await client.post(base_url + "/chat/completions", headers=headers, json=payload)
-            response.raise_for_status()
-        if len(response.content) > 1_000_000:
-            raise ValueError("response too large")
-        try:
-            result = response.json()
-            reply = _test_reply(result)
-        except json.JSONDecodeError:
-            # A few compatible servers return a stream even when stream=false.
-            fragments = []
-            for line in response.text.splitlines():
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    event = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                choices = event.get("choices", []) if isinstance(event, dict) else []
-                if choices and isinstance(choices[0], dict):
-                    delta = choices[0].get("delta", {})
-                    if isinstance(delta, dict) and isinstance(delta.get("content"), str):
-                        fragments.append(delta["content"])
-            reply = "".join(fragments).strip() or None
-        if not reply:
-            raise ValueError("invalid completion response")
-        return {"reply": reply[:1000]}
-    except httpx.TimeoutException:
-        raise HTTPException(504, "The model server timed out") from None
-    except httpx.ConnectError as error:
-        cause, seen = error, set()
-        while cause is not None and id(cause) not in seen:
-            seen.add(id(cause))
-            if isinstance(cause, ssl.SSLCertVerificationError):
-                raise HTTPException(502, "The backend does not trust the model server certificate") from None
-            cause = cause.__cause__ or cause.__context__
-        raise HTTPException(502, "Could not connect to the model server") from None
-    except httpx.HTTPStatusError as error:
-        if error.response.status_code in (401, 403):
-            message = "The model server rejected authentication"
-        else:
-            message = "The model server returned an error"
-        raise HTTPException(502, message) from None
-    except (httpx.HTTPError, ValueError, json.JSONDecodeError):
-        raise HTTPException(502, "The model server returned an invalid response") from None
+    # Exercise the same prompt, streaming parser, inference budget and evidence
+    # validation as chat. A plain "OK" cannot establish coaching compatibility.
+    preferences = Preferences.model_validate(user.preferences or {})
+    board = chess.Board()
+    question = "Hvad bør jeg fokusere på i denne stilling?" if preferences.coach_language == "da" else "What should I focus on in this position?"
+    context = await asyncio.to_thread(coach_service.context, board, preferences.model_dump(), question, [])
+    reply, source, reason = await coach_service.respond(board, context, preferences.coach_language,
+        Connection(draft.base_url, draft.model, key, verify_tls))
+    if source == "deterministic":
+        messages = {
+            "timeout": "The model server timed out",
+            "connection": "Could not connect to the model server",
+            "tls_certificate": "The backend does not trust the model server certificate",
+            "authentication": "The model server rejected authentication",
+            "server_error": "The model server returned an error",
+            "busy": "The model is busy. Try again shortly.",
+        }
+        message = messages.get(reason, "The model responded, but its answer could not be used for verified coaching. It must return the requested JSON with valid evidence references.")
+        raise HTTPException(504 if reason == "timeout" else 502, message)
+    return {"reply": reply}
 
 
 @router.get("")

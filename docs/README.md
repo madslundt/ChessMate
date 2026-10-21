@@ -71,8 +71,8 @@ Set these values in `config/.env`:
 LLM_BASE_URL=http://192.168.1.50:8000/v1
 LLM_MODEL=your-served-model-name
 LLM_API_KEY=
-LLM_TIMEOUT=35
-LLM_MAX_TOKENS=600
+LLM_TIMEOUT=90
+LLM_MAX_TOKENS=2000
 LLM_TEMPERATURE=0.2
 ```
 
@@ -86,9 +86,11 @@ docker compose --env-file config/.env -f config/compose.yaml up -d --build --wai
 
 LLM credentials stay in backend environment variables. They are not part of the frontend bundle or returned in settings responses. The adapter calls `/v1/chat/completions` with streaming enabled and expects a JSON selection of verified fact identifiers. It adds `/v1` when the configured base URL does not already end with it. When the server is absent, times out, or returns invalid structured output, the coach uses deterministic explanations derived from the analyzed position. Health reports whether inference is configured; it does not guarantee that a remote model is currently reachable.
 
+**Test LLM** in Settings runs a sample position through the same streaming request and evidence validation used by coaching, using the connection currently entered in the form. It displays a verified coaching reply on success and reports an error if the model's response cannot be used. Testing does not save the connection. A successful sample does not guarantee that every later response will pass validation.
+
 An actual container-to-container OpenAI-compatible protocol fixture passed: valid streamed evidence selection produced `local_llm_verified`; malformed JSON, illegal move/variation references, and a timeout produced deterministic fallback. Context checks covered exact FEN, learner color, side to move, legal moves, requested candidate, and legal engine variation. This verifies the adapter protocol, not model inference quality. A cached local Qwen model is also evaluated against the frozen teaching benchmark; see the current verification record for actual provider results. DGX Spark hardware itself has not been tested.
 
-Reasoning models can consume the short selection budget on thinking tokens without returning the required JSON. If your provider supports it, set `LLM_REASONING_EFFORT=none` to request a direct selection. Leave it blank for providers that do not accept `reasoning_effort`. With Qwen-compatible servers, disabling thinking is documented in the [vLLM reasoning controls](https://docs.vllm.ai/en/stable/features/reasoning_outputs/). Model failures now show a specific fallback reason in chat rather than labeling every failure as offline. Game-review questions use the saved pre-move grades available up to the selected position, including without a model.
+Reasoning models share the output-token budget between thinking and the final JSON. The defaults allow 2,000 tokens and 90 seconds so the model can reason before answering. Existing installations should update `LLM_MAX_TOKENS` and `LLM_TIMEOUT` in `config/.env` if they still use 600 tokens and 35 seconds. Leave `LLM_REASONING_EFFORT` blank to preserve the provider's default reasoning behavior; only set an explicit effort when supported by your provider. Setting it to `none` disables reasoning. Model failures show a specific fallback reason in chat rather than labeling every failure as offline. Game-review questions use the saved pre-move grades available up to the selected position, including without a model.
 
 ## LAN, mobile, and HTTPS
 

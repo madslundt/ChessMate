@@ -101,6 +101,75 @@ def test_private_ca_is_required_and_hostname_verification_remains_enabled(monkey
 CONNECTION = {"base_url": "http://model-server:8000/v1", "model": "local-chess-model"}
 
 
+@pytest.mark.parametrize("completion", [
+    "OK",
+    "",
+    '{"fact_ids":["invented_fact"]}',
+    '{"response":"Your queen wins by force.","fact_ids":["plan"]}',
+])
+def test_settings_probe_rejects_responses_that_cannot_produce_verified_coaching(signed, monkeypatch, completion):
+    def provider(request):
+        payload = json.loads(request.content)
+        if not payload.get("stream"):
+            # The old connectivity-only probe reports success for this same server.
+            return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}}]})
+        event = {"choices": [{"delta": {"content": completion}, "finish_reason": "stop"}]}
+        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n")
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(provider)))
+    before = signed.get("/api/settings/llm").json()
+    response = signed.post("/api/settings/llm/test", json=CONNECTION)
+    assert response.status_code == 502, response.text
+    assert "verified coaching" in response.json()["detail"]
+    assert signed.get("/api/settings/llm").json() == before
+
+
+def test_settings_probe_uses_coaching_protocol_and_unsaved_connection(signed, monkeypatch):
+    requests = []
+    def provider(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert request.headers["Authorization"] == "Bearer draft-secret"
+        if not payload.get("stream"):
+            return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}}]})
+        content = '{"segments":[{"fact_id":"plan","framing":"consider"}]}'
+        event = {"choices": [{"delta": {"content": content}}]}
+        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n")
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(provider)))
+    before = signed.get("/api/settings/llm").json()
+    response = signed.post("/api/settings/llm/test", json={**CONNECTION, "api_key": "draft-secret"})
+    assert response.status_code == 200, response.text
+    assert requests[0]["stream"] is True
+    assert "statement_catalog" in requests[0]["messages"][1]["content"]
+    assert "center" in response.json()["reply"]
+    assert "draft-secret" not in response.text
+    assert signed.get("/api/settings/llm").json() == before
+
+
+@pytest.mark.parametrize("budget,effort,status", [(600, "", 502), (2000, "", 200), (600, "none", 200)])
+def test_settings_probe_detects_reasoning_budget_exhaustion(signed, monkeypatch, budget, effort, status):
+    from dataclasses import replace
+    import src.backend.coach as coach
+    monkeypatch.setattr(coach, "settings", replace(coach.settings, llm_max_tokens=budget, llm_reasoning_effort=effort))
+    def provider(request):
+        payload = json.loads(request.content)
+        assert payload["max_tokens"] == coach.settings.llm_max_tokens
+        if not payload.get("stream"):
+            return httpx.Response(200, json={"choices": [{"message": {"content": "OK"}}]})
+        if payload.get("reasoning_effort") == "none" or payload["max_tokens"] >= 2000:
+            delta, finish = {"reasoning_content": "Choosing relevant evidence...", "content": '{"fact_ids":["plan"]}'}, "stop"
+        else:
+            # The actual automation-moe failure: HTTP 200, reasoning only, no final answer.
+            delta, finish = {"reasoning_content": "Choosing relevant evidence...", "content": ""}, "length"
+        event = {"choices": [{"delta": delta, "finish_reason": finish}]}
+        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n")
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(provider)))
+    response = signed.post("/api/settings/llm/test", json=CONNECTION)
+    assert response.status_code == status, response.text
+
+
 def test_connection_requires_selected_profile(client):
     assert client.get("/api/settings/llm").status_code == 400
     assert client.patch("/api/settings/llm", json=CONNECTION).status_code == 400

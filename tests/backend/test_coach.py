@@ -271,6 +271,31 @@ def test_reasoning_model_can_reserve_its_budget_for_verified_json(monkeypatch, e
     assert reason == (None if effort else "invalid_response")
 
 
+def test_default_budget_allows_reasoning_before_verified_json(monkeypatch):
+    import json
+    import src.backend.coach as coach
+    from src.backend.config import Settings
+    from src.backend.llm_settings import Connection
+    for name in ("LLM_MAX_TOKENS", "LLM_TIMEOUT", "LLM_REASONING_EFFORT"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(coach, "settings", Settings())
+    original = httpx.AsyncClient
+    def model(request):
+        payload = json.loads(request.content)
+        assert "reasoning_effort" not in payload
+        events = [{"choices": [{"delta": {"reasoning_content": "Compare the supplied evidence."}}]}]
+        if payload["max_tokens"] >= 2000:
+            events.append({"choices": [{"delta": {"content": '{"fact_ids":["plan"]}'}, "finish_reason": "stop"}]})
+        else:
+            events.append({"choices": [{"delta": {}, "finish_reason": "length"}]})
+        return httpx.Response(200, text="".join(f"data: {json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n")
+    monkeypatch.setattr(coach.httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(model), **kwargs))
+    board, ctx = context()
+    text, source, reason = asyncio.run(CoachService().respond(board, ctx, "en", Connection("http://model.test/v1", "reasoning-model")))
+    assert source == "local_llm_verified" and reason is None
+    assert "center" in text and "Compare the supplied evidence" not in text
+
+
 def test_cancelled_queued_model_request_cannot_leak_an_inference_slot():
     import threading
     from src.backend.llm_settings import Connection
