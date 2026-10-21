@@ -1,4 +1,7 @@
-.feedback-highlights {
+.feedback-highlights,
+.feedback-note > .feedback-highlights {
+  display: block;
+  color: var(--ink);
   margin-top: 9px;
   font-size: 12px;
   line-height: 1.7;

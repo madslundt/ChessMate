@@ -144,6 +144,7 @@ test('bad-move labels highlight threats and the better move on their own positio
   await expect(page.locator('[data-square="b8"] [data-piece="bN"]')).toHaveCount(1);
   await expect(page.locator('[data-square="e1"] .board-square')).toHaveCSS('box-shadow', 'rgb(213, 148, 49) 0px 0px 0px 4px inset');
   await expect(page.locator('path[marker-end*="h4-e1"]')).toBeAttached();
+  await expect(page.locator('.position-score')).toContainText('Black wins');
   await expect(page.locator('.board-explanation')).toContainText('Showing the position for this explanation');
   await page.screenshot({ path: `/tmp/chessmate-threat-label-${info.project.name}.png`, fullPage: true });
   await threat.click();
@@ -157,15 +158,16 @@ test('bad-move labels highlight threats and the better move on their own positio
   await page.getByRole('button', { name: 'Flip board', exact: true }).click();
   await expect(page.locator('path[marker-end*="d2-d4"]')).toBeAttached();
   await page.screenshot({ path: `/tmp/chessmate-improvement-label-${info.project.name}.png`, fullPage: true });
-  await page.getByRole('button', { name: 'Clear highlights', exact: true }).click();
+  await page.getByRole('button', { name: 'Clear board explanation', exact: true }).click();
   await expect(better).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('[data-square="g4"] [data-piece="wP"]')).toHaveCount(1);
   await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
   // The same controls work in the coaching timeline and the game review.
   const coach = page.locator('.move-feedback-entry.white.blunder');
+  await expect(coach.locator('.feedback-highlights')).toHaveCSS('display', 'block');
   await coach.getByRole('button', { name: 'd4', exact: true }).click();
   await expect(coach.getByRole('button', { name: 'd4', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: 'Clear highlights', exact: true }).click();
+  await page.getByRole('button', { name: 'Clear board explanation', exact: true }).click();
   await page.goto('/analyze/feedback-highlights');
   await page.locator('.review-move').filter({ hasText: 'g4' }).click();
   await page.getByRole('button', { name: 'Reveal engine feedback', exact: true }).click();

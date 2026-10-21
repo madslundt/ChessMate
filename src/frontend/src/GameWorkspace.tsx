@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Chess } from 'chess.js';
 import {
   ArrowLeft,
   ArrowRight,
@@ -189,14 +190,14 @@ export function GameWorkspace(props: WorkspaceProps) {
             </span>
           </div>
           <PositionScore
-            chess={chess}
-            result={!explore && atLatest ? game?.result : undefined}
-            evaluation={displayedAnalysis?.candidates[0]}
-            showEvaluation={preferences.show_evaluation || preferences.show_evaluation_bar}
+            chess={feedbackFen ? new Chess(feedbackFen) : chess}
+            result={!feedbackFen && !explore && atLatest ? game?.result : undefined}
+            evaluation={feedbackFen ? undefined : displayedAnalysis?.candidates[0]}
+            showEvaluation={!feedbackFen && (preferences.show_evaluation || preferences.show_evaluation_bar)}
           />
           {squareAnswer && <div className="board-explanation" role="status">{t('selectSquarePrompt')}<button className="text-button" onClick={() => setSquareAnswer(null)}>{t('cancelChoice')}</button></div>}
           <div className="board-area">
-            {preferences.show_evaluation_bar && (
+            {!feedbackFen && preferences.show_evaluation_bar && (
               <div className="evaluation-bar" title="White perspective">
                 <div
                   style={{

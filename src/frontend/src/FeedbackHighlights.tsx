@@ -4,6 +4,7 @@ import type { Feedback, VisualInsight } from './types';
 import './styles/feedback-highlights.css';
 
 export function feedbackImprovement(feedback: Feedback, beforeFen: string, playedUci: string) {
+  if (typeof feedback.fen === 'string' && feedback.fen !== beforeFen) return null;
   const candidate = feedback.improvement || (feedback.best ? { ...feedback.best, fen: beforeFen } : undefined);
   if (!candidate || candidate.fen !== beforeFen || candidate.uci === playedUci) return null;
   try {

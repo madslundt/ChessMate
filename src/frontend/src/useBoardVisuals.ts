@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Chess } from 'chess.js';
 import type { Preferences, VisualInsight } from './types';
 
 export function useBoardVisuals({ fen, preferences, highlightedMove, exploring, lastMove, retryPosition }: {
@@ -25,6 +26,7 @@ export function useBoardVisuals({ fen, preferences, highlightedMove, exploring, 
     clearVisual: () => setSelection(null),
     showVisual: (insight: VisualInsight) => {
       if (insight.id.startsWith('feedback-')) {
+        try { new Chess(insight.fen); } catch { return; }
         setSelection((current) => current?.origin === fen && current.insight.id === insight.id && current.insight.fen === insight.fen ? null : { insight, origin: fen });
       } else {
         if (insight.fen !== fen) retryPosition(insight.fen);
