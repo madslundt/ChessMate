@@ -216,6 +216,13 @@ class CoachService:
                 '{"segments":[{"fact_id":"plan","framing":"consider"}]}. '
                 "Use question tone for Socratic coaching."
             )
+            focused_follow_up = bool(context.get("follow_up") and context.get("piece_choice"))
+            if focused_follow_up:
+                instruction += (
+                    " This is a follow-up about the recommendation in follow_up_focus. The supplied piece_choice_why "
+                    "and impact statements explain that move. Focus on that idea; choose at most two relevant references "
+                    "without selecting a new move."
+                )
             reveal = reveal_requested(context) or not context.get("preferences", {}).get("hide_best_moves", True) if "question" in context else False
             line_allowed = show_line(context) if context.get("preferences") and "question" in context else False
             allowed_uci = {candidate["uci"] for candidate in visible_candidates(context, reveal)} if context.get("preferences") and "question" in context else set()
@@ -228,6 +235,8 @@ class CoachService:
             compact = {key: context[key] for key in ("fen", "learner_color", "side_to_move", "skill_level", "question") if key in context}
             if context.get("follow_up"):
                 compact.update(question=context["user_question"], follow_up_to=context["question"])
+                focus = context.get("topic_focus") or choice_recommendation(context)
+                if focus: compact["follow_up_focus"] = {key: focus[key] for key in ("uci", "san")}
             compact.update(legal_moves=context.get("legal_moves", []),
                 history=[{"role": message["role"], "content": message["content"][-400:]} for message in context.get("history", [])[-4:]],
                 requested_candidates=[compact_candidate(candidate) for candidate in context.get("requested_candidates", [])[:2]],
@@ -246,6 +255,9 @@ class CoachService:
             catalog, catalog_size = {}, 0
             for key in prioritized:
                 if key not in statements: continue
+                if focused_follow_up and not (key.startswith(("piece_choice_", "impact_", "outcome_", "motif_")) or key in (
+                        "terminal", "check", "turn", "clarify_move", "clarify_follow_up", "uncertainty", "offline")):
+                    continue
                 size = len(key) + len(statements[key])
                 if catalog_size + size > 7000 or len(catalog) >= 18: continue
                 catalog[key] = statements[key]

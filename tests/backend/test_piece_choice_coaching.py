@@ -248,3 +248,30 @@ def test_unanchored_why_requests_clarification_without_unrelated_board_hints(pos
     text, _, _ = asyncio.run(service.respond(board, context, "en"))
     assert text == "Which move or idea would you like me to explain?"
     assert not service.visual_evidence(board, context, "en")["insights"]
+
+
+def test_model_follow_up_receives_the_pinned_move_and_focused_explanation_evidence(position, monkeypatch):
+    import httpx
+    from src.backend.coaching_choices import choice_recommendation
+    from src.backend.coaching_conversation import topic_snapshot
+    from src.backend.llm_settings import Connection
+    board, _ = position
+    service = CoachService()
+    question = "Should I develop my knight or bishop first?"
+    initial = service.context(board, Preferences().model_dump(), question, [])
+    context = service.context(board, Preferences().model_dump(), "Why?", [], topic=topic_snapshot(initial, choice_recommendation(initial)))
+    original = httpx.AsyncClient
+    def provider(request):
+        payload = json.loads(request.content)
+        prompt = json.loads(payload["messages"][1]["content"])
+        assert prompt["verified_context"]["question"] == "Why?"
+        assert prompt["verified_context"]["follow_up_focus"]["uci"] == "g1f3"
+        assert prompt["verified_context"]["follow_up_to"] == question
+        assert "piece_choice_why" in prompt["statement_catalog"]
+        assert "castle" not in prompt["statement_catalog"] and "plan" not in prompt["statement_catalog"]
+        event = {"choices": [{"delta": {"content": '{"fact_ids":["piece_choice_why"]}'}}]}
+        return httpx.Response(200, text=f"data: {json.dumps(event)}\n\ndata: [DONE]\n\n")
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(provider), **kwargs))
+    statements = service.statements(board, context, "en", True)
+    selection = asyncio.run(service._model_selection(context, statements, Connection("http://provider.test/v1", "reasoning-model")))
+    assert selection.fact_ids == ["piece_choice_why"]
