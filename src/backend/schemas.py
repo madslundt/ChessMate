@@ -51,11 +51,13 @@ class HintRequest(PositionRequest):
     level: int = Field(default=1, ge=1, le=2)
     language: Literal["en", "da"] = "en"
     question: str = Field(default="", max_length=2000)
+    game_id: str | None = Field(default=None, max_length=36)
 
 
 class ChatMessage(Input):
     role: Literal["user", "assistant"]
     content: str = Field(max_length=4000)
+    fen: str | None = Field(default=None, max_length=120)
 
 
 class CoachRequest(PositionRequest):

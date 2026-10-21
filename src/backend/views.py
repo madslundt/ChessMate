@@ -21,6 +21,7 @@ class MoveView(View):
     san: str
     fen: str
     before_fen: str | None = None
+    timeline_revision: int | None = None
     feedback: dict[str, Any] | None = None
 
 

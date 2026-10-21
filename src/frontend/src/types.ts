@@ -80,6 +80,7 @@ export interface Feedback extends VisualCoaching {
   [key: string]: unknown;
 }
 export interface MoveRecord {
+  timeline_revision?: number;
   uci: string;
   san: string;
   fen: string;
@@ -149,6 +150,11 @@ export interface CoachingState {
   turns?: number;
 }
 export interface ChatMessage extends VisualCoaching {
+  timeline_revision?: number;
+  id?: string;
+  created_at?: string;
+  ply?: number;
+  hint_question?: string;
   state?: CoachingState;
   ambiguous_moves?: {
     reference: string;

@@ -303,6 +303,7 @@ def fallback_keys(context: dict, statements: dict, reveal: bool) -> list[str]:
     keys = [key for key in ("terminal", "turn", "check", "offline") if key in statements]
     if "terminal" in statements: return ["terminal"]
     if "clarify_move" in statements: return ["clarify_move"]
+    if "clarify_follow_up" in statements: return ["clarify_follow_up"]
     if "piece_choice_answer" in statements:
         return keys + [key for key in statements if key.startswith("piece_choice_")]
     if review_requested(context) and "review" in statements:

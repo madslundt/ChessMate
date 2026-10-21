@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, streamCoach } from "./api";
 import { useT } from "./i18n";
 import { runAnalysis } from "./analysisJobs";
+import { mergeConversationMessages, positionPly } from "./coachTimeline";
 import type {
   Analysis,
   ChatMessage,
@@ -62,6 +63,11 @@ export function useCoachSession({
     currentFen = useRef(fen),
     scroll = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    controller.current?.abort();
+    setMessages([]);
+    setState(null);
+  }, [game?.id]);
+  useEffect(() => {
     currentFen.current = fen;
     controller.current?.abort();
     cancelAnalysis();
@@ -75,6 +81,7 @@ export function useCoachSession({
     setCalculating(false);
     setHintLevel(0);
     setError(null);
+    setMessages((previous) => previous.filter((message) => message.role !== "assistant" || message.content));
   }, [fen]);
   useEffect(
     () => () => {
@@ -85,9 +92,9 @@ export function useCoachSession({
   );
   useEffect(() => {
     let cancelled = false;
-    if (!game || exploring || (reviewMode && tab !== "coach")) return;
+    if (!game || busy || exploring || (reviewMode && tab !== "coach")) return;
     api<{ messages: ChatMessage[]; state?: CoachingState }>(
-      `/games/${game.id}/conversation?fen=${encodeURIComponent(fen)}`,
+      `/games/${game.id}/conversation?timeline=true&fen=${encodeURIComponent(fen)}`,
     )
       .then((result) => {
         if (!cancelled && currentFen.current === fen) {
@@ -99,11 +106,7 @@ export function useCoachSession({
             )
               setTeachingMode(result.state.mode);
           }
-          setMessages((previous) =>
-            previous.some((m) => m.fen === fen)
-              ? previous
-              : [...previous, ...result.messages],
-          );
+          setMessages((previous) => mergeConversationMessages(previous, result.messages));
         }
       })
       .catch(() => {
@@ -112,7 +115,7 @@ export function useCoachSession({
     return () => {
       cancelled = true;
     };
-  }, [game?.id, fen, exploring, reviewMode, tab]);
+  }, [game?.id, game?.revision, fen, exploring, reviewMode, tab, busy]);
 
   useLayoutEffect(() => {
     const container = scroll.current;
@@ -198,9 +201,11 @@ export function useCoachSession({
         "/hint",
         {
           fen,
+          game_id: game?.id,
           level,
           language: preferences.coach_language,
-          question: [...messages].reverse().find((message) => message.role === "user" && message.fen === fen)?.content || "",
+          question: [...messages].reverse().find((message) => message.role === "assistant" && message.fen === fen)?.hint_question
+            || [...messages].reverse().find((message) => message.role === "user" && message.fen === fen)?.content || "",
           ...budget,
         },
         undefined,
@@ -244,7 +249,9 @@ export function useCoachSession({
     const history = messages
       .filter((m) => m.fen === fen)
       .slice(-10)
-      .map(({ role, content }) => ({ role, content }));
+      .map(({ role, content, fen }) => ({ role, content, fen }));
+    const userId = `pending-${crypto.randomUUID()}`, answerId = `pending-${crypto.randomUUID()}`;
+    const ply = positionPly(game, fen);
     setQuestion("");
     setHint("");
     setHintMove(null);
@@ -254,8 +261,8 @@ export function useCoachSession({
     setBusy(true);
     setMessages((m) => [
       ...m,
-      { role: "user", content: text, fen },
-      { role: "assistant", content: "", fen },
+      { id: userId, role: "user", content: text, fen, ply, timeline_revision: game?.revision },
+      { id: answerId, role: "assistant", content: "", fen, ply, timeline_revision: game?.revision },
     ]);
     try {
       await streamCoach(
@@ -271,7 +278,7 @@ export function useCoachSession({
           teaching_mode: teachingMode,
         },
         (event, data) => {
-          if (currentFen.current !== requested) return;
+          if (abort.signal.aborted || currentFen.current !== requested) return;
           const content = String(data.text || data.content || "");
           if (event === "done" && data.state)
             setState(data.state as CoachingState);
@@ -280,16 +287,18 @@ export function useCoachSession({
             return;
           }
           if (event === "token" || event === "message" || event === "done")
-            setMessages((m) => {
-              const last = m[m.length - 1];
-              if (last?.role !== "assistant" || last.fen !== requested)
-                return m;
-              return [
-                ...m.slice(0, -1),
-                {
-                  ...last,
+            setMessages((messages) => messages.map((message) => {
+              if (message.id === userId && typeof data.user_message_id === "string")
+                return { ...message, id: data.user_message_id, created_at: String(data.user_created_at || "") };
+              if (message.id !== answerId) return message;
+              return {
+                  ...message,
                   ...(event === "done"
                     ? {
+                        id: typeof data.message_id === "string" ? data.message_id : message.id,
+                        created_at: String(data.created_at || ""),
+                        hint_question: typeof data.hint_question === "string" ? data.hint_question : undefined,
+                        ply: typeof data.ply === "number" ? data.ply : message.ply,
                         ambiguous_moves:
                           data.ambiguous_moves as ChatMessage["ambiguous_moves"],
                         insights: data.insights as VisualInsight[] | undefined,
@@ -300,19 +309,19 @@ export function useCoachSession({
                   content:
                     event === "done" && content
                       ? content
-                      : last.content + content,
-                  source: String(data.source || last.source || ""),
+                      : message.content + content,
+                  source: String(data.source || message.source || ""),
                   fallback_reason:
                     typeof data.fallback_reason === "string"
                       ? data.fallback_reason
-                      : last.fallback_reason,
-                },
-              ];
-            });
+                      : message.fallback_reason,
+                };
+            }));
           else if (event === "status" && data.source)
             setMessages((m) =>
-              m.map((v, i) =>
-                i === m.length - 1 ? { ...v, source: String(data.source) } : v,
+              m.map((v) =>
+                v.id === answerId ? { ...v, source: String(data.source) }
+                  : v.id === userId && typeof data.user_message_id === "string" ? { ...v, id: data.user_message_id } : v,
               ),
             );
         },
@@ -322,7 +331,7 @@ export function useCoachSession({
       if (!abort.signal.aborted && currentFen.current === requested)
         setError(e);
     } finally {
-      if (currentFen.current === requested) setBusy(false);
+      if (controller.current === abort && currentFen.current === requested) setBusy(false);
     }
   }
   return {

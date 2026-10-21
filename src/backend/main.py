@@ -23,9 +23,11 @@ from .views import AnalysisView, HintView
 from .training import router as training_router, seed_exercises
 from .llm_settings import router as llm_settings_router, connection_for
 from .calculation import router as calculation_router
-from .coaching_models import CoachingState
+from .coaching_models import CoachingEvidence, CoachingState
 from .coaching_state import advance_discovery, public_state, state_key
 from .coaching_persistence import persist_response
+from .coaching_conversation import topic_snapshot
+from .coaching_choices import choice_recommendation
 from .coach_facts import reveal_requested
 from .analysis_jobs import analysis_jobs, router as analysis_jobs_router
 from .fullgame_analysis import router as fullgame_analysis_router
@@ -189,7 +191,10 @@ def analyze(data: PositionRequest, user: User = Depends(current_user), db: Sessi
 @api.post("/hint", tags=["Coaching"], response_model=HintView)
 def hint(data: HintRequest, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     board = position(data)
-    result = coach_service.hint(board, data.level, data.language, data.time_ms, data.depth, data.candidates, data.question)
+    if data.game_id: games.owned_game(db, data.game_id, user)
+    saved = db.get(CoachingState, state_key(user.id, data.game_id, board.fen()))
+    topic = saved.data.get("topic") if saved else None
+    result = coach_service.hint(board, data.level, data.language, data.time_ms, data.depth, data.candidates, data.question, topic)
     db.add(HintUsage(user_id=user.id, fen=board.fen(), level=data.level))
     db.commit()
     return result
@@ -253,23 +258,36 @@ def coach(data: CoachRequest, user: User = Depends(current_user), db: Session = 
     llm_connection = connection_for(db, user)
     saved_state = db.get(CoachingState, state_key(user.id, data.game_id, board.fen()))
     previous_state = dict(saved_state.data) if saved_state else None
+    asked = CoachingMessage(user_id=user_id, game_id=data.game_id, fen=board.fen(), role="user", content=data.question)
+    db.add(asked)
+    db.flush()
+    db.add(CoachingEvidence(message_id=asked.id, payload={"ply": game_context.get("selected_ply"), "revision": data.revision}))
+    db.commit()
+    asked_id, asked_at = asked.id, asked.created_at.isoformat()
 
     async def stream():
-        yield sse("status", {"source": "analyzing", "fen": board.fen(), "revision": data.revision})
+        yield sse("status", {"source": "analyzing", "fen": board.fen(), "revision": data.revision,
+                             "user_message_id": asked_id, "user_created_at": asked_at})
         try:
-            context = await asyncio.to_thread(coach_service.context, board, prefs, data.question, history, game_context)
+            context = await asyncio.to_thread(coach_service.context, board, prefs, data.question, history, game_context,
+                                             topic=(previous_state or {}).get("topic"))
             discovery = advance_discovery(board, context, previous_state, data.teaching_mode, language)
             context["coaching_state"] = discovery
             yield sse("status", {"source": "explaining", "fen": board.fen(), "revision": data.revision})
             text, source, fallback_reason = await coach_service.respond(board, context, language, llm=llm_connection)
+            if not context.get("missing_topic"):
+                focus = choice_recommendation(context) or next(iter(context.get("requested_candidates", [])), None)
+                discovery["topic"] = topic_snapshot(context, focus)
             # Persist the exact validated visual response, not a reconstructed future analysis.
             metadata = {"source": source, "fallback_reason": fallback_reason, "fen": board.fen(), "revision": data.revision,
+                        "ply": game_context.get("selected_ply"), "hint_question": context["question"],
+                        "timeline_revision": data.revision,
                         "state": public_state(discovery), "evidence_ids": context.get("response_fact_ids", []),
                         "analysis_key": context["analysis"].get("analysis_key"),
                         **coach_service.visual_evidence(board, context, language)}
             statements = coach_service.statements(board, context, language, reveal_requested(context) or not prefs["hide_best_moves"])
             metadata["evidence"] = [{"id": key, "text": statements[key]} for key in metadata["evidence_ids"] if key in statements]
-            await asyncio.to_thread(persist_response, SessionLocal, user_id, data.game_id, board.fen(), data.question, text, metadata, discovery)
+            metadata.update(await asyncio.to_thread(persist_response, SessionLocal, user_id, data.game_id, board.fen(), data.question, text, metadata, discovery, asked_id))
             for start in range(0, len(text), 28):
                 yield sse("token", {"text": text[start:start + 28], "fen": board.fen()})
                 await asyncio.sleep(0)

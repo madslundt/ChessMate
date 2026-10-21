@@ -97,7 +97,8 @@ def state(game: Game, user: User | None = None, include_evidence: bool = False, 
 
 def append_move(game: Game, board: chess.Board, move: chess.Move, feedback: dict | None, source: str) -> dict:
     record = {"uci": move.uci(), "san": board.san(move), "before_fen": board.fen(),
-              "color": "white" if board.turn else "black", "source": source, "feedback": feedback}
+              "color": "white" if board.turn else "black", "source": source, "feedback": feedback,
+              "timeline_revision": game.revision + 1}
     board.push(move)
     record["fen"] = board.fen()
     game.moves = [*game.moves, record]
@@ -162,7 +163,7 @@ def create_game(data: GameCreate, user: User = Depends(current_user), db: Sessio
                 if index >= 2000: raise ValueError("PGN exceeds 2000 plies")
                 if move not in board.legal_moves: raise ValueError("Illegal move in PGN")
                 record = {"uci": move.uci(), "san": board.san(move), "before_fen": board.fen(),
-                          "color": "white" if board.turn else "black", "source": "import", "feedback": None}
+                          "color": "white" if board.turn else "black", "source": "import", "feedback": None, "timeline_revision": 0}
                 board.push(move)
                 record["fen"] = board.fen()
                 records.append(record)
@@ -249,6 +250,7 @@ def redo(game_id: str, data: Revision, user: User = Depends(current_user), db: S
     restored = redo_payload(db, game)
     if not restored:
         raise HTTPException(409, "No moves to redo")
+    restored = [{**move, "timeline_revision": game.revision + 1} for move in restored]
     game.moves = [*game.moves, *restored]
     commit_event(db, game, "redo", {"restored": restored})
     return state(game, user, can_redo=False)
@@ -317,18 +319,32 @@ def review(game_id: str, user: User = Depends(current_user), db: Session = Depen
 
 
 @router.get("/{game_id}/conversation")
-def conversation(game_id: str, fen: str | None = None, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+def conversation(game_id: str, fen: str | None = None, timeline: bool = False, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     game = owned_game(db, game_id, user)
     target = fen or board_for(game).fen()
     try: target = parse_board(target).fen()
     except ValueError as exc: raise HTTPException(422, str(exc)) from exc
-    messages = db.scalars(select(CoachingMessage).where(CoachingMessage.user_id == user.id,
-        CoachingMessage.game_id == game.id, CoachingMessage.fen == target)
-        .order_by(CoachingMessage.created_at.desc()).limit(50)).all()
+    query = select(CoachingMessage).where(CoachingMessage.user_id == user.id, CoachingMessage.game_id == game.id)
+    if not timeline: query = query.where(CoachingMessage.fen == target)
+    messages = db.scalars(query.order_by(CoachingMessage.created_at.desc(), CoachingMessage.role.asc(), CoachingMessage.id.desc())
+                         .limit(200 if timeline else 50)).all()
     evidence = {item.message_id: item.payload for item in db.scalars(select(CoachingEvidence).where(
         CoachingEvidence.message_id.in_([message.id for message in messages])))} if messages else {}
     saved = db.get(CoachingState, state_key(user.id, game.id, target))
+    positions = [game.initial_fen, *(move["fen"] for move in game.moves)]
+    ordered = list(reversed(messages))
+    turn_revisions = {}
+    for asked, answered in zip(ordered, ordered[1:]):
+        if asked.role == "user" and answered.role == "assistant" and asked.fen == answered.fen:
+            turn_revisions[asked.id] = evidence.get(answered.id, {}).get("revision")
+    def message_data(message: CoachingMessage) -> dict:
+        payload = evidence.get(message.id, {})
+        ply = payload.get("ply")
+        if ply is None: ply = max((i for i, position in enumerate(positions) if position == message.fen), default=len(game.moves))
+        revision = payload.get("revision", turn_revisions.get(message.id))
+        return {"id": message.id, "role": message.role, "content": message.content, "fen": message.fen,
+                "created_at": message.created_at.isoformat(), **payload, "ply": ply,
+                "timeline_revision": revision if revision is not None else ply}
     return {"game_id": game.id, "fen": target, "revision": game.revision,
             "state": public_state(saved.data) if saved else None,
-            "messages": [{"id": m.id, "role": m.role, "content": m.content, "fen": m.fen,
-                          "created_at": m.created_at.isoformat(), **evidence.get(m.id, {})} for m in reversed(messages)]}
+            "messages": [message_data(message) for message in ordered]}

@@ -37,6 +37,7 @@ def choice_recommendation(context: dict) -> dict | None:
     candidates = context.get("requested_candidates", [])
     if not candidates or not (context.get("piece_choice") or {}).get("analyzed"):
         return None
+    if context.get("topic_focus"): return context["topic_focus"]
     best = max(candidates, key=score_number)
     global_best = next(iter(context["analysis"].get("candidates", [])), None)
     if global_best and score_number(global_best) - score_number(best) >= 150:
@@ -91,6 +92,15 @@ def piece_choice_statements(board: chess.Board, context: dict, language: str, re
                            "; the opponent can legally capture on its destination, so check the reply")
             statements[f"piece_choice_{index}"] = detail + "."
         statements["piece_choice_limit"] = "Valget er et estimat fra en kort søgning i netop denne stilling." if da else "This choice is a short-search estimate for this particular position."
+        if context.get("follow_up") == "why":
+            focus = choice_recommendation(context) or best
+            facts = move_facts(board, chess.Move.from_uci(focus["uci"]))
+            piece_name = name(board.piece_type_at(chess.parse_square(facts["from"])))
+            reason = (f"Pointen med {focus['san']} er at aktivere din {piece_name} fra {facts['from']} til {facts['to']}" if da else
+                      f"The idea behind {focus['san']} is to activate your {piece_name} from {facts['from']} to {facts['to']}")
+            if facts["central_control"]:
+                reason += (" og lægge pres på centrumfelterne " if da else " and pressure the central squares ") + ", ".join(facts["central_control"])
+            statements = {"piece_choice_why": reason + ".", **statements}
     else:
         choices = (" og " if da else " and ").join(name(piece) for piece in available) or names
         if available:

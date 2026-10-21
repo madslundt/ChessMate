@@ -7,14 +7,20 @@ from .coaching_state import state_key
 from .models import CoachingMessage
 
 
-def persist_response(factory, user_id: str, game_id: str | None, fen: str, question: str, text: str, payload: dict, state: dict) -> None:
+def persist_response(factory, user_id: str, game_id: str | None, fen: str, question: str, text: str, payload: dict, state: dict,
+                     user_message_id: str | None = None) -> dict:
     for attempt in range(3):
         with factory() as db:
             try:
-                db.add(CoachingMessage(user_id=user_id, game_id=game_id, fen=fen, role="user", content=question))
+                asked = db.get(CoachingMessage, user_message_id) if user_message_id else None
+                if asked is None:
+                    asked = CoachingMessage(user_id=user_id, game_id=game_id, fen=fen, role="user", content=question)
+                    db.add(asked)
                 answer = CoachingMessage(user_id=user_id, game_id=game_id, fen=fen, role="assistant", content=text)
                 db.add(answer)
                 db.flush()
+                if not user_message_id:
+                    db.add(CoachingEvidence(message_id=asked.id, payload={"ply": payload.get("ply"), "revision": payload.get("revision")}))
                 db.add(CoachingEvidence(message_id=answer.id, payload=payload))
                 key = state_key(user_id, game_id, fen)
                 saved = db.get(CoachingState, key)
@@ -25,7 +31,8 @@ def persist_response(factory, user_id: str, game_id: str | None, fen: str, quest
                 else:
                     db.add(CoachingState(id=key, user_id=user_id, game_id=game_id, fen=fen, data=state))
                 db.commit()
-                return
+                return {"user_message_id": asked.id, "message_id": answer.id,
+                        "user_created_at": asked.created_at.isoformat(), "created_at": answer.created_at.isoformat()}
             except (IntegrityError, StaleDataError):
                 db.rollback()
                 if attempt == 2: raise RuntimeError("Coaching progress changed concurrently; try again") from None

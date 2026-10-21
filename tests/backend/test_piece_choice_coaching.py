@@ -149,3 +149,102 @@ def test_more_urgent_move_stays_aligned_with_the_board_and_hints(position, monke
     assert visuals["insights"][0]["arrows"][0]["from"] == "d2"
     hint = service.hint(board, 2, question="Knight or bishop first?")
     assert hint["highlight_move"] == "d2d4"
+
+
+@pytest.mark.parametrize("follow_up", ["Why?", "Why is that?", "Hvorfor?", "Uddyb", "Show me"])
+def test_short_follow_up_retains_the_previous_piece_choice(position, monkeypatch, follow_up):
+    board, _ = position
+    service = CoachService()
+    async def offline(*_args): raise ModelUnavailable("not_configured")
+    monkeypatch.setattr(service, "_model_selection", offline)
+    history = [{"role": "user", "content": "Should I develop the knight or bishop first?"},
+               {"role": "assistant", "content": "Start with your knight: Nf3."}]
+    context = service.context(board, Preferences().model_dump(), follow_up, history)
+    assert context["piece_choice"] is not None
+    text, _, _ = asyncio.run(service.respond(board, context, "en"))
+    assert "Nf3" in text and "bishop" in text
+    assert service.visual_evidence(board, context, "en")["insights"][0]["arrows"][0]["from"] == "g1"
+
+
+def test_persisted_follow_up_and_hints_keep_the_original_recommendation(position, signed, monkeypatch):
+    from src.backend.coach import coach_service
+    board, scores = position
+    async def offline(*_args): raise ModelUnavailable("not_configured")
+    monkeypatch.setattr(coach_service, "_model_selection", offline)
+    game = signed.post("/api/games", json={"mode": "analysis", "fen": board.fen()}).json()
+    base = {"game_id": game["id"], "revision": game["revision"], "fen": board.fen(), "language": "en"}
+    first = signed.post("/api/coach", json={**base, "question": "Should I develop my knight or bishop first?"})
+    assert "Nf3" in first.text
+    # Follow-up requests must explain the recommendation already made, even if
+    # a fresh, short search would now slightly reorder the alternatives.
+    scores.update(g1f3=10, f1c4=30)
+    for question in ("Why?", "Explain more"):
+        reply = signed.post("/api/coach", json={**base, "question": question})
+        done = json.loads(reply.text.split("event: done\ndata: ")[1].splitlines()[0])
+        assert done["hint_question"] == "Should I develop my knight or bishop first?"
+        assert done["insights"][0]["arrows"][0] == {"from": "g1", "to": "f3", "color": "green"}
+        assert "Nf3" in done["text"] and "d4" in done["text"]
+    hint = signed.post("/api/hint", json={"game_id": game["id"], "fen": board.fen(), "question": "Why?", "level": 2})
+    assert hint.status_code == 200, hint.text
+    assert hint.json()["highlight_move"] == "g1f3"
+
+
+def test_follow_up_does_not_restore_a_different_position_or_override_a_new_topic(position):
+    from src.backend.coaching_conversation import topic_snapshot
+    from src.backend.coaching_choices import choice_recommendation
+    board, _ = position
+    service = CoachService()
+    initial = service.context(board, Preferences().model_dump(), "Knight or bishop first?", [])
+    topic = topic_snapshot(initial, choice_recommendation(initial))
+    new_topic = service.context(board, Preferences().model_dump(), "Can I castle?", [], topic=topic)
+    assert new_topic["piece_choice"] is None and new_topic["question"] == "Can I castle?"
+    changed = board.copy()
+    changed.push_uci("g1f3")
+    follow_up = service.context(changed, Preferences().model_dump(), "Why?", [{"role": "user", "content": topic["question"], "fen": board.fen()}], topic=topic)
+    assert follow_up["missing_topic"] and not follow_up["piece_choice"]
+    assert not follow_up["requested_candidates"]
+
+
+def test_a_question_remains_in_the_timeline_if_explanation_is_interrupted(position, signed, monkeypatch):
+    from src.backend.coach import coach_service
+    board, _ = position
+    game = signed.post("/api/games", json={"mode": "analysis", "fen": board.fen()}).json()
+    def failed(*_args, **_kwargs): raise ValueError("interrupted context")
+    monkeypatch.setattr(coach_service, "context", failed)
+    response = signed.post("/api/coach", json={"game_id": game["id"], "revision": 0, "fen": board.fen(), "question": "Knight or bishop first?"})
+    assert "event: error" in response.text
+    timeline = signed.get(f"/api/games/{game['id']}/conversation?timeline=true").json()["messages"]
+    assert len(timeline) == 1 and timeline[0]["role"] == "user"
+    assert timeline[0]["content"] == "Knight or bishop first?" and timeline[0]["ply"] == 0
+
+
+def test_historical_follow_up_is_ordered_at_the_time_it_was_asked(position, signed, monkeypatch):
+    from src.backend.coach import coach_service
+    board, _ = position
+    async def offline(*_args): raise ModelUnavailable("not_configured")
+    monkeypatch.setattr(coach_service, "_model_selection", offline)
+    monkeypatch.setattr(engine_service, "grade", lambda board, move, **_kwargs: {"fen": board.fen(), "text": "Verified move.", "classification": "Good"})
+    game = signed.post("/api/games", json={"mode": "analysis", "fen": board.fen()}).json()
+    base = {"game_id": game["id"], "fen": board.fen(), "language": "en"}
+    signed.post("/api/coach", json={**base, "revision": 0, "question": "Knight or bishop first?"})
+    moved = signed.post(f"/api/games/{game['id']}/moves", json={"revision": 0, "move": "g1f3"})
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["moves"][0]["timeline_revision"] == 1
+    reply = signed.post("/api/coach", json={**base, "revision": 1, "question": "Why?"})
+    done = json.loads(reply.text.split("event: done\ndata: ")[1].splitlines()[0])
+    assert done["ply"] == 0 and done["timeline_revision"] == 1
+    timeline = signed.get(f"/api/games/{game['id']}/conversation?timeline=true").json()["messages"]
+    assert [message["timeline_revision"] for message in timeline] == [0, 0, 1, 1]
+    assert [message["role"] for message in timeline] == ["user", "assistant", "user", "assistant"]
+    assert not signed.get(f"/api/games/{game['id']}/conversation").json()["messages"]
+
+
+def test_unanchored_why_requests_clarification_without_unrelated_board_hints(position, monkeypatch):
+    board, _ = position
+    service = CoachService()
+    async def generic(*_args): return Selection(fact_ids=["plan"])
+    monkeypatch.setattr(service, "_model_selection", generic)
+    context = service.context(board, Preferences().model_dump(), "Why?", [])
+    text, _, _ = asyncio.run(service.respond(board, context, "en"))
+    assert text == "Which move or idea would you like me to explain?"
+    assert not service.visual_evidence(board, context, "en")["insights"]
