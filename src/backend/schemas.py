@@ -48,8 +48,9 @@ class PositionRequest(Input):
 
 
 class HintRequest(PositionRequest):
-    level: int = Field(default=1, ge=1, le=4)
+    level: int = Field(default=1, ge=1, le=2)
     language: Literal["en", "da"] = "en"
+    question: str = Field(default="", max_length=2000)
 
 
 class ChatMessage(Input):

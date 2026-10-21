@@ -70,14 +70,14 @@ def test_csrf_and_validation(signed):
 
 
 @pytest.mark.parametrize("fen", [chess.STARTING_FEN, "6k1/8/8/8/8/8/4r3/4K3 w - - 0 1"])
-def test_hint_levels_reveal_source_then_destination_before_candidates(signed, fen):
+def test_two_hint_levels_reveal_source_then_destination(signed, fen):
     board = chess.Board(fen)
     source = None
     hinted_move = None
-    for level in range(1, 5):
+    for level in range(1, 3):
         response = signed.post("/api/hint", json={"fen": fen, "level": level})
         assert response.status_code == 200, response.text
-        assert bool(response.json().get("candidates")) == (level == 4)
+        assert not response.json().get("candidates")
         if level == 1:
             square = response.json().get("highlight_square")
             assert square in chess.SQUARE_NAMES
@@ -93,6 +93,8 @@ def test_hint_levels_reveal_source_then_destination_before_candidates(signed, fe
             hinted_move = move
         if level <= 2:
             assert not response.json().get("insights") and not response.json().get("variations")
+    for level in (3, 4):
+        assert signed.post("/api/hint", json={"fen": fen, "level": level}).status_code == 422
 
 
 def test_imported_game_analysis_is_resumable_grades_both_sides_and_preserves_moves(signed, monkeypatch):

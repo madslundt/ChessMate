@@ -70,7 +70,7 @@ def test_api_requires_selected_profile_and_hides_solutions(training_client):
 def test_solution_hints_progress_and_spaced_repetition(training_client):
     client, sessions = training_client
     item = read_library()[0]
-    for level in range(1, 5):
+    for level in range(1, 3):
         response = client.post(f"/api/exercises/{item['id']}/hint", json={"level": level})
         assert response.status_code == 200
         assert response.json()["text"] == item["hints"][level - 1]
@@ -83,10 +83,10 @@ def test_solution_hints_progress_and_spaced_repetition(training_client):
     response = client.post(f"/api/exercises/{item['id']}/attempt", json={"moves": item["solution"], "hint_level": 0})
     assert response.status_code == 200, response.text
     assert response.json()["correct"] and response.json()["complete"]
-    assert response.json()["hint_level"] == 4  # A client cannot hide server-recorded hints.
+    assert response.json()["hint_level"] == 2  # A client cannot hide server-recorded hints.
     progress = client.get("/api/progress").json()
     assert progress["attempts"] == progress["correct"] == 1
-    assert progress["hints_used"] == 4
+    assert progress["hints_used"] == 2
     assert progress["accuracy"] == 1
     with sessions() as db:
         schedule = db.scalar(select(LearningProgress))
@@ -353,8 +353,8 @@ def test_continuation_hint_uses_reached_position_and_never_reveals_an_early_move
     assert first["highlight_square"] == item["solution"][2][:2]
     second = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 2, "moves": prefix}).json()
     assert second["move"] == item["solution"][2]
-    revealed = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 4, "moves": prefix}).json()
-    assert revealed["move"] == item["solution"][2]
+    for level in (3, 4):
+        assert client.post(f"/api/exercises/{item['id']}/hint", json={"level": level, "moves": prefix}).status_code == 422
     invalid = client.post(f"/api/exercises/{item['id']}/hint", json={"level": 1, "moves": ["a1a8"]})
     assert invalid.status_code == 422
 

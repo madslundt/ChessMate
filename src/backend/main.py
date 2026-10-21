@@ -189,7 +189,7 @@ def analyze(data: PositionRequest, user: User = Depends(current_user), db: Sessi
 @api.post("/hint", tags=["Coaching"], response_model=HintView)
 def hint(data: HintRequest, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     board = position(data)
-    result = coach_service.hint(board, data.level, data.language, data.time_ms, data.depth, data.candidates)
+    result = coach_service.hint(board, data.level, data.language, data.time_ms, data.depth, data.candidates, data.question)
     db.add(HintUsage(user_id=user.id, fen=board.fen(), level=data.level))
     db.commit()
     return result

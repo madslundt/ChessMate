@@ -174,6 +174,7 @@ export function useCoachSession({
     }
   }
   async function requestHint() {
+    if (hintLevel >= 2 || analyzing) return;
     if (!preferences.progressive_hints) {
       setHint(t("hintDisabled"));
       return;
@@ -181,7 +182,7 @@ export function useCoachSession({
     cancelAnalysis();
     const hintController = new AbortController();
     analysisController.current = hintController;
-    const level = Math.min(hintLevel + 1, 4),
+    const level = Math.min(hintLevel + 1, 2),
       requested = fen;
     setAnalyzing(true);
     try {
@@ -199,6 +200,7 @@ export function useCoachSession({
           fen,
           level,
           language: preferences.coach_language,
+          question: [...messages].reverse().find((message) => message.role === "user" && message.fen === fen)?.content || "",
           ...budget,
         },
         undefined,
@@ -206,8 +208,8 @@ export function useCoachSession({
       );
       if (!hintController.signal.aborted && currentFen.current === requested) {
         setHint(result.text || result.hint || "");
-        setHintMove(level >= 3 ? result.highlight_move || null : null);
-        setHintVisual(level >= 3 ? result : (level === 1 ? result.highlight_square : result.highlight_move) ? {
+        setHintMove(level === 2 ? result.highlight_move || null : null);
+        setHintVisual((level === 1 ? result.highlight_square : result.highlight_move) ? {
           insights: [{
             id: "hint-guide",
             fen: requested,
@@ -221,7 +223,6 @@ export function useCoachSession({
           }],
         } : null);
         setHintLevel(level);
-        if (level === 4) await compare();
       }
     } catch (e) {
       if (!hintController.signal.aborted && currentFen.current === requested)
@@ -245,6 +246,10 @@ export function useCoachSession({
       .slice(-10)
       .map(({ role, content }) => ({ role, content }));
     setQuestion("");
+    setHint("");
+    setHintMove(null);
+    setHintVisual(null);
+    setHintLevel(0);
     setError(null);
     setBusy(true);
     setMessages((m) => [

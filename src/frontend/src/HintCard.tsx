@@ -39,8 +39,12 @@ export function HintCard({
       aria-pressed={hintMove ? highlightedMove === hintMove : undefined}
       onPointerEnter={() => hintMove && onHoverMove(hintMove)}
       onPointerLeave={() => onHoverMove(null)}
-      onClick={() => hintMove && onToggleMove(hintMove)}
+      onClick={(event) => {
+        if (event.target instanceof Element && event.target.closest("button")) return;
+        if (hintMove) onToggleMove(hintMove);
+      }}
       onKeyDown={(event) => {
+        if (event.target instanceof Element && event.target.closest("button")) return;
         if (hintMove && (event.key === "Enter" || event.key === " ")) {
           event.preventDefault();
           onToggleMove(hintMove);
@@ -48,10 +52,10 @@ export function HintCard({
       }}
     >
       <span>
-        {t("hint")} {hintLevel}/4
+        {t("hint")} {hintLevel}/2
       </span>
       <p>{hint}</p>
-      {hintLevel >= 3 && hintVisual && preferences.explanation_mode !== "text" && (
+      {hintVisual && preferences.explanation_mode !== "text" && (
         <VisualExplanation
           coaching={hintVisual}
           onVisual={onVisual}

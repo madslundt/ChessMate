@@ -25,7 +25,7 @@ test('learning keeps continuation hints and visual playback synchronized, and sa
     await move(page, 'a7', 'b5');
     await expect(page.locator('[data-square="b5"] [data-piece="bN"]')).toHaveCount(1);
     await expect(page.locator('[data-square="e5"] [data-piece="wK"]')).toHaveCount(1);
-    for (let level = 1; level <= 4; level++) {
+    for (let level = 1; level <= 2; level++) {
       const hintResponse = page.waitForResponse((result) => result.url().endsWith('/forks-08/hint'));
       await page
         .getByRole('button', { name: level === 1 ? 'Give me a hint' : 'Next hint', exact: true })
@@ -44,6 +44,7 @@ test('learning keeps continuation hints and visual playback synchronized, and sa
       }
       if (level === 1) expect(hint.move).toBeUndefined();
     }
+    await expect(page.getByRole('button', { name: 'Next hint', exact: true })).toBeDisabled();
     await move(page, 'b5', 'c7');
     await expect(page.getByText('Solved with help or after a retry', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Show on board', exact: true }).click();

@@ -111,7 +111,7 @@ def test_multimove_alternatives_get_private_verified_branches_and_current_hints(
     assert result.status_code == 200, result.text
     first = result.json()
     assert first["correct"] and not first["complete"] and first["reply"] == "d7d5"
-    hint = client.post("/api/exercises/branch-practice/hint", json={"level": 4,
+    hint = client.post("/api/exercises/branch-practice/hint", json={"level": 2,
         "moves": ["d4", "d5"], "branch_id": first["branch_id"]}).json()
     assert hint["move"] == "c2c4"
     solved = client.post("/api/exercises/branch-practice/attempt", json={"moves": ["d4", "d5", "c4"],

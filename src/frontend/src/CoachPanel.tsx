@@ -418,10 +418,10 @@ export function CoachPanel({
               onServerSpeak={(text) => synthesizeSpeech(text, preferences.coach_language)}
             />
             <div className="coach-actions coach-primary-actions">
-              <button className="outline-button" onClick={requestHint} disabled={positionPending || analyzing || busy || hintLevel >= 4}>
+              <button className="outline-button" onClick={requestHint} disabled={positionPending || analyzing || busy || hintLevel >= 2}>
                 <Lightbulb size={20} />
                 {hintLevel ? t('nextHint') : t('hint')}
-                {hintLevel > 0 && <small>{hintLevel}/4</small>}
+                {hintLevel > 0 && <small>{hintLevel}/2</small>}
               </button>
               <button className="outline-button" onClick={() => void compare()} disabled={positionPending || analyzing}>
                 <ChartNoAxesColumnIncreasing size={20} />

@@ -12,10 +12,11 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from .chess_tools import move_facts, move_idea, move_insights, observations, parse_move, resolve_move_references
 from .coach_facts import PIECES_DA, build_statements, learner_color, fallback_keys, reveal_requested, show_line, visible_candidates
 from .config import settings, llm_tls_context
-from .engine import EngineUnavailable, engine_service
+from .engine import EngineUnavailable, engine_service, score_number
 from .llm_settings import Connection
 from .coaching_strategy import strategic_insights, candidate_strategy
 from .coaching_language import verified_paraphrase
+from .coaching_choices import choice_moves, choice_recommendation, piece_choice_request, piece_choice_statements
 
 
 class ModelUnavailable(RuntimeError):
@@ -107,24 +108,27 @@ class CoachService:
                 candidate_evidence.extend(evidence["candidates"])
             except EngineUnavailable: break
         unavailable_piece_choices = []
-        if not requested and any(term in question.lower() for term in ("better than", "rather than", "compare", "bedre end", "sammenlign")):
-            for piece_type in (chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.PAWN, chess.KING):
+        piece_choice = piece_choice_request(question) if not requested else None
+        if piece_choice and board.turn == learner_color(board, {"game": game_context or {}}):
+            piece_choice["analyzed"] = True
+            for piece_type in piece_choice["pieces"]:
                 name = chess.piece_name(piece_type)
-                if name not in question.lower() and PIECES_DA[name] not in question.lower(): continue
-                choices = [m for m in board.legal_moves if board.piece_type_at(m.from_square) == piece_type]
+                choices = choice_moves(board, piece_type, piece_choice["development"])
                 if not choices:
                     unavailable_piece_choices.append(name)
                     continue
                 try:
                     evidence = engine_service.analyze(board, time_ms=150, candidates=1, root_moves=choices)
                     candidate_evidence.extend(evidence["candidates"])
-                except EngineUnavailable: break
-                if len(candidate_evidence) >= 2: break
+                    if not evidence["candidates"]: piece_choice["analyzed"] = False
+                except EngineUnavailable:
+                    piece_choice["analyzed"] = False
+            candidate_evidence.sort(key=score_number, reverse=True)
         return {"fen": board.fen(), "learner_color": "white" if learner_color(board, {"game": game_context or {}}) else "black", "side_to_move": "white" if board.turn else "black",
                 "legal_moves": [{"uci": m.uci(), "san": board.san(m)} for m in board.legal_moves],
                 "move_history": [m.uci() for m in board.move_stack[-16:]], "analysis": analysis,
                 "requested_candidates": candidate_evidence, "ambiguous_moves": resolved["ambiguous"],
-                "unavailable_piece_choices": unavailable_piece_choices, "phase": analysis.get("observations", {}).get("phase"),
+                "unavailable_piece_choices": unavailable_piece_choices, "piece_choice": piece_choice, "phase": analysis.get("observations", {}).get("phase"),
                 "skill_level": preferences.get("complexity", "beginner"), "preferences": preferences,
                 "game": game_context or {}, "history": history[-8:], "question": question}
 
@@ -132,7 +136,7 @@ class CoachService:
         statements = build_statements(board, context, language, reveal)
         state = context.get("coaching_state", {})
         if state.get("acknowledgement"): statements["discovery_acknowledgement"] = state["acknowledgement"]
-        if state.get("mode") == "guided": statements["guided_question"] = state["question"]
+        if state.get("mode") == "guided" and not context.get("piece_choice"): statements["guided_question"] = state["question"]
         for insight in strategic_insights(board, context.get("learner_color", "white" if board.turn else "black") == "white",
                 context["preferences"].get("complexity", "beginner"), language):
             # A pawn-contact suggestion is a concrete move; keep it out of spoiler-protected catalogs.
@@ -306,6 +310,9 @@ class CoachService:
                         corrected = True
             self.validate_selection(selection, statements, board, context, reveal)
             mandatory = [key for key in ("terminal", "clarify_move", "outcome_0") if key in statements]
+            if "piece_choice_answer" in statements:
+                mandatory = [key for key in ("terminal", "turn", "check") if key in statements]
+                mandatory += [key for key in statements if key.startswith("piece_choice_")]
             if "guided_question" in statements:
                 mandatory += [key for key in ("discovery_acknowledgement", "guided_question") if key in statements]
             question = context["question"].lower()
@@ -320,6 +327,8 @@ class CoachService:
                 context["response_fact_ids"] = [segment.fact_id for segment in selection.segments] or selection.fact_ids
                 return text, "local_llm_grounded_corrected" if corrected else "local_llm_verified", None
             keys = list(dict.fromkeys(mandatory + [segment.fact_id for segment in selection.segments] + selection.fact_ids))
+            if "piece_choice_answer" in statements:
+                keys = [key for key in keys if key in mandatory or key.startswith(("outcome_", "impact_"))]
             if "review" in statements:
                 keys = list(dict.fromkeys([key for key in ("review", "previous_assessment") if key in statements] + keys))
             source = "local_llm_grounded_corrected" if corrected else "local_llm_verified"
@@ -338,6 +347,25 @@ class CoachService:
     def visual_evidence(self, board: chess.Board, context: dict, language: str) -> dict:
         reveal = reveal_requested(context) or not context["preferences"].get("hide_best_moves", True)
         insights, variations = [], []
+        if context.get("piece_choice"):
+            choices = list(context.get("requested_candidates", [])) if reveal else []
+            priority = choice_recommendation(context) if reveal else None
+            if priority and all(candidate["uci"] != priority["uci"] for candidate in choices): choices.insert(0, priority)
+            statements = piece_choice_statements(board, context, language, reveal)
+            for candidate in choices:
+                items, lines = move_insights(board, candidate, language)
+                index = next((i for i, compared in enumerate(context.get("requested_candidates", [])) if compared["uci"] == candidate["uci"]), None)
+                insights.append({**items[0], "text": statements.get(f"piece_choice_{index}", items[0]["text"])})
+                if show_line(context): variations.extend(lines)
+            if not insights:
+                request = context["piece_choice"]
+                sources = sorted({chess.square_name(move.from_square) for piece in request["pieces"]
+                                  for move in choice_moves(board, piece, request["development"])}) if context["learner_color"] == ("white" if board.turn else "black") else []
+                if sources:
+                    insights.append({"id": "piece_choice_sources", "fen": board.fen(), "claim_type": "legal_move",
+                        "text": "Sammenlign disse brikkers udvikling." if language == "da" else "Compare the development of these pieces.",
+                        "squares": sources, "arrows": []})
+            return {"insights": insights, "variations": variations, "ambiguous_moves": context.get("ambiguous_moves", [])}
         for candidate in visible_candidates(context, reveal):
             items, lines = move_insights(board, candidate, language)
             insights.extend(items)
@@ -347,8 +375,13 @@ class CoachService:
             if insight["id"] != "strategy_pawn_breaks" or reveal: insights.append(insight)
         return {"insights": insights, "variations": variations, "ambiguous_moves": context.get("ambiguous_moves", [])}
 
-    def hint(self, board: chess.Board, level: int, language: str = "en", time_ms: int = 250, depth: int | None = None, candidates: int = 3) -> dict:
+    def hint(self, board: chess.Board, level: int, language: str = "en", time_ms: int = 250, depth: int | None = None, candidates: int = 3, question: str = "") -> dict:
+        if level not in (1, 2): raise ValueError("Choose hint 1 or 2")
         analysis = engine_service.analyze(board, candidates=candidates, time_ms=time_ms, depth=depth)
+        if question:
+            context = self.context(board, {}, question, [], analysis=analysis)
+            if priority := choice_recommendation(context):
+                analysis = {**analysis, "candidates": [priority]}
         da = language == "da"
         candidates = analysis["candidates"]
         if not candidates:
@@ -409,10 +442,8 @@ class CoachService:
             else:
                 text = (f"Den vigtigste brik at forbedre er din {piece} på {facts['from']}." if da else
                         f"The key piece to improve is your {piece} on {facts['from']}.")
-        elif level == 3:
-            text = f"{best['san']}: {move_idea(facts, language)}"
-        else:
-            text = f"{best['san']}: {move_idea(facts, language)}"
+            text += (f" Undersøg {facts['from']} → {facts['to']} på brættet, og overvej modstanderens svar." if da else
+                     f" Examine {facts['from']} → {facts['to']} on the board and consider the opponent's reply.")
         side = ("Hvid" if board.turn else "Sort") if da else ("White" if board.turn else "Black")
         text = (f"{side} i trækket: " if da else f"{side} to move: ") + text
         result = {"fen": board.fen(), "level": level, "text": text, "perspective": "white" if board.turn else "black"}
@@ -420,13 +451,6 @@ class CoachService:
             result["highlight_square"] = chess.square_name(move.from_square)
         if level >= 2:
             result["highlight_move"] = best["uci"]
-        if level >= 3:
-            result["insights"], _ = move_insights(board, best, language)
-            if level == 3:
-                result["insights"] = [item for item in result["insights"] if item["claim_type"] in ("legal_move", "board_geometry")]
-        if level == 4:
-            result["candidates"] = [{**c, "explanation": move_idea(c["facts"], language)} for c in candidates]
-            _, result["variations"] = move_insights(board, best, language)
         return result
 
 

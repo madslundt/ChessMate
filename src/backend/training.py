@@ -35,7 +35,7 @@ class AttemptRequest(BaseModel):
 
 
 class HintRequest(BaseModel):
-    level: int = Field(default=1, ge=1, le=4)
+    level: int = Field(default=1, ge=1, le=2)
     moves: list[str] = Field(default_factory=list, max_length=16)
     branch_id: str | None = Field(default=None, max_length=36)
 
@@ -129,7 +129,7 @@ def update_schedule(db: Session, user_id: str, exercise: Exercise, correct: bool
     if not correct:
         progress.streak, progress.interval_days = 0, 0.04
     elif hint_level:
-        progress.streak, progress.interval_days = 0, 1 if hint_level < 4 else 0.25
+        progress.streak, progress.interval_days = 0, 1 if hint_level < 2 else 0.25
     else:
         progress.streak += 1
         progress.interval_days = min(60, max(1, progress.interval_days * 2.2))
@@ -239,12 +239,11 @@ def exercise_hint(exercise_id: str, body: HintRequest, db: DB, user: Player) -> 
     next_move = parse_move(board, expected[len(body.moves)])
     if body.moves:
         source = chess.square_name(next_move.from_square)
-        hints = (["Undersøg skakker, slag og trusler i den nye stilling.",
-                  "Beregn modstanderens bedste svar, før du vælger din fortsættelse.",
-                  f"Se på brikken på {source}.", f"Prøv {board.san(next_move)}."] if language == "da" else
-                 ["Scan checks, captures, and threats in the new position.",
-                  "Calculate the opponent’s strongest response before choosing your continuation.",
-                  f"Look at the piece on {source}.", f"Try {board.san(next_move)}."])
+        target = chess.square_name(next_move.to_square)
+        hints = ([f"Undersøg brikken på {source} i den nye stilling.",
+                  f"Undersøg {source} → {target} på brættet, og beregn modstanderens svar."] if language == "da" else
+                 [f"Focus on the piece on {source} in the new position.",
+                  f"Examine {source} → {target} on the board and calculate the opponent's reply."])
     level = min(body.level, len(hints))
     db.add(HintEvent(user_id=user.id, exercise_id=exercise_id, level=level))
     db.commit()

@@ -288,10 +288,11 @@ function ExercisePlayer({
     }
   }
   async function requestHint() {
+    if (level >= 2 || busy) return;
     setBusy(true);
     try {
       const r = await api<{ text: string; level: number; move?: string; highlight_square?: string }>(`/exercises/${exercise.id}/hint`, {
-        level: Math.min(level + 1, 4),
+        level: Math.min(level + 1, 2),
         moves,
         branch_id: branchId,
       });
@@ -446,7 +447,7 @@ function ExercisePlayer({
           {hint && (
             <div className="hint-note">
               <span>
-                {t('hint')} {level}/4
+                {t('hint')} {level}/2
               </span>
               <p>{hint}</p>
             </div>
@@ -461,7 +462,7 @@ function ExercisePlayer({
             preferences.progressive_hints && (
               <button
                 className="outline-button"
-                disabled={busy || level >= 4}
+                disabled={busy || level >= 2}
                 onClick={() => void requestHint()}
               >
                 <Lightbulb size={19} />

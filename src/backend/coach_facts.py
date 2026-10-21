@@ -3,8 +3,8 @@ import chess
 
 from .chess_tools import move_facts, move_idea, move_insights, observations, parse_move, relation_idea
 from .engine import score_number
+from .coaching_choices import PIECES_DA, piece_choice_statements
 
-PIECES_DA = {"pawn": "bonde", "knight": "springer", "bishop": "løber", "rook": "tårn", "queen": "dronning", "king": "konge"}
 
 
 def review_requested(context: dict) -> bool:
@@ -16,7 +16,7 @@ def review_requested(context: dict) -> bool:
 def reveal_requested(context: dict) -> bool:
     question = context["question"].lower()
     if any(word in question for word in ("without revealing", "no spoilers", "uden at afsløre")): return False
-    return bool(context.get("requested_candidates")) or any(word in question for word in (
+    return bool(context.get("piece_choice") or context.get("requested_candidates")) or any(word in question for word in (
         "best", "answer", "reveal", "candidate", "recommend", "compare", "better than", "bedste", "svaret", "vis træ", "anbefal", "sammenlign", "bedre end"))
 
 
@@ -196,6 +196,7 @@ def build_statements(board: chess.Board, context: dict, language: str, reveal: b
         else:
             statements["unavailable_piece"] = (f"{root_name} har intet lovligt træk i denne stilling med: " if da else f"There is currently no legal {root_name} move with a ") + ", ".join(names) + "."
     candidates = visible_candidates(context, reveal)
+    statements.update(piece_choice_statements(board, context, language, reveal))
     for index, candidate in enumerate(candidates):
         move = parse_move(board, candidate["uci"])
         prefix = "" if learner_turn else (f"For {root_name}: ")
@@ -302,6 +303,8 @@ def fallback_keys(context: dict, statements: dict, reveal: bool) -> list[str]:
     keys = [key for key in ("terminal", "turn", "check", "offline") if key in statements]
     if "terminal" in statements: return ["terminal"]
     if "clarify_move" in statements: return ["clarify_move"]
+    if "piece_choice_answer" in statements:
+        return keys + [key for key in statements if key.startswith("piece_choice_")]
     if review_requested(context) and "review" in statements:
         keys.insert(0, "review")
     if review_requested(context) or any(word in question for word in ("last", "bad", "mistake", "why was", "blunder", "previous", "sidste", "fejl", "hvorfor var")):

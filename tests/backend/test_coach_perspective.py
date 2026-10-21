@@ -90,7 +90,7 @@ def test_generic_hints_name_root_side_without_assigning_it_to_user(language, sid
     from src.backend.coach import CoachService
     board = chess.Board()
     board.push_san("e4")
-    hint = CoachService().hint(board, 3, language, time_ms=50)
+    hint = CoachService().hint(board, 2, language, time_ms=50)
     assert hint["text"].startswith(side)
     assert hint["perspective"] == "black"
     assert "your" not in hint["text"] and "din " not in hint["text"]
