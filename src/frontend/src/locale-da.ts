@@ -181,6 +181,8 @@ export const da: typeof en = {
   check: "Skak",
   saved: "Gemt automatisk",
   noMoves: "Ingen træk endnu.",
+  lastMoveFeedback: "Feedback på seneste træk",
+  feedbackUnavailable: "Ingen feedback tilgængelig for dette træk.",
   start: "Start spil",
   cancel: "Annullér",
   color: "Din farve",

@@ -23,6 +23,7 @@ import {
 import { api, ApiError } from './api';
 import { Board, evaluationText } from './Board';
 import { PositionScore } from './PositionScore';
+import { LastMoveFeedback } from './LastMoveFeedback';
 import { CoachPanel } from './CoachPanel';
 import { committable, variationCursor } from './exploration';
 import { VariationPlayer } from './VariationPlayer';
@@ -227,6 +228,7 @@ export function GameWorkspace(props: WorkspaceProps) {
               disabled={!squareAnswer && (busy || (!explore && (!atLatest || (!analysisMode && !!game && (!isPlayerTurn || finished)))))}
             />
           </div>
+          {!analysisMode && game && <LastMoveFeedback game={game} ply={at} />}
           {activeVisual && <div className="board-explanation" role="status"><span>{activeVisual.text}</span><button className="text-button" onClick={() => setVisual(null)}>{t('clearVisuals')}</button></div>}
           {explore && <VariationPlayer base={explore.base} moves={explore.moves} cursor={variationCursor(explore)} onCursor={(cursor) => setExplore({ ...explore, cursor })} playing={playing} onPlaying={setPlaying} speed={speed} onSpeed={setSpeed} label={explore.label} />}
           <div className="player-bottom">

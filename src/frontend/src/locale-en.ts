@@ -180,6 +180,8 @@ export const en = {
   check: "Check",
   saved: "Automatically saved",
   noMoves: "No moves yet.",
+  lastMoveFeedback: "Last move feedback",
+  feedbackUnavailable: "No feedback available for this move.",
   start: "Start game",
   cancel: "Cancel",
   color: "Your color",
