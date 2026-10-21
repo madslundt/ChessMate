@@ -30,6 +30,7 @@ import { VariationPlayer } from './VariationPlayer';
 import { ErrorNotice, PageHeading, Spinner } from './components';
 import { GameLoading, GameSetup, ImportModal } from './GameDialogs';
 import { useGameWorkspace, type WorkspaceProps } from './useGameWorkspace';
+import { useBoardVisuals } from './useBoardVisuals';
 import { PostGameSummary } from './GameReview';
 import type { Exercise, Game, VisualInsight } from './types';
 import { analysisPath, learnPath, navigate, Link } from './navigation';
@@ -85,14 +86,11 @@ export function GameWorkspace(props: WorkspaceProps) {
   const [hoveredMove, setHoveredMove] = useState<string | null>(null);
   const [pinnedMove, setPinnedMove] = useState<string | null | undefined>(undefined);
   const [squareAnswer, setSquareAnswer] = useState<((square: string) => void) | null>(null);
-  const [visual, setVisual] = useState<VisualInsight | null>(null);
   const highlightedMove = hoveredMove ?? pinnedMove;
-  const activeVisual = visual?.fen === fen ? visual : null;
-  const threatVisual = /threat|attack|pin|fork|skewer|exposed|reply/i.test(`${activeVisual?.claim_type || ''} ${activeVisual?.id || ''}`);
-  const visibleVisual = preferences.highlight_threats === false && threatVisual ? null : activeVisual;
-  const arrows = visibleVisual?.arrows?.filter((arrow) => (preferences.highlight_threats !== false || !['red', '#c65355'].includes(arrow.color || '')) && /^[a-h][1-8]$/.test(arrow.from) && /^[a-h][1-8]$/.test(arrow.to)).map((arrow) => ({startSquare: arrow.from, endSquare: arrow.to, color: arrow.color || '#326e9c'})) || [];
-  const visualMove = highlightedMove || (explore && preferences.explanation_mode !== 'text' ? lastMove : null);
-  if (visualMove && /^[a-h][1-8][a-h][1-8]/.test(visualMove)) arrows.push({startSquare: visualMove.slice(0, 2), endSquare: visualMove.slice(2, 4), color: '#378466'});
+  const { activeVisual, arrows, targets, feedbackFen, showVisual, clearVisual } = useBoardVisuals({ fen, preferences, highlightedMove, exploring: !!explore, lastMove, retryPosition });
+  function highlightVisual(insight: VisualInsight) {
+    setHoveredMove(null); setPinnedMove(null); showVisual(insight);
+  }
   useEffect(() => {
     setHoveredMove(null);
     setPinnedMove(undefined);
@@ -209,8 +207,8 @@ export function GameWorkspace(props: WorkspaceProps) {
               </div>
             )}
             <Board
-              fen={boardFen}
-              result={game && finished && atLatest && !explore && !analysisMode ? {
+              fen={feedbackFen || boardFen}
+              result={game && finished && atLatest && !explore && !feedbackFen && !analysisMode ? {
                 id: `${game.id}:${game.revision}`,
                 score: game.result!,
                 playerColor: game.player_color,
@@ -220,16 +218,16 @@ export function GameWorkspace(props: WorkspaceProps) {
               preferences={preferences}
               orientation={displayOrientation}
               lastMove={lastMove}
-              highlightedMove={highlightedMove}
+              highlightedMove={feedbackFen ? null : highlightedMove}
               arrows={arrows}
-              targets={preferences.highlight_pieces === false && visibleVisual?.id !== 'hint-guide' ? [] : visibleVisual?.squares}
-              onSelectSquare={squareAnswer ? (square) => { setSquareAnswer(null); squareAnswer(square); } : undefined}
+              targets={targets}
+              onSelectSquare={!feedbackFen && squareAnswer ? (square) => { setSquareAnswer(null); squareAnswer(square); } : undefined}
               onMove={play}
-              disabled={!squareAnswer && (busy || (!explore && (!atLatest || (!analysisMode && !!game && (!isPlayerTurn || finished)))))}
+              disabled={!!feedbackFen || (!squareAnswer && (busy || (!explore && (!atLatest || (!analysisMode && !!game && (!isPlayerTurn || finished))))))}
             />
           </div>
-          {!analysisMode && game && <LastMoveFeedback game={game} ply={at} />}
-          {activeVisual && <div className="board-explanation" role="status"><span>{activeVisual.text}</span><button className="text-button" onClick={() => setVisual(null)}>{t('clearVisuals')}</button></div>}
+          {!analysisMode && game && <LastMoveFeedback game={game} ply={at} onVisual={highlightVisual} activeVisual={activeVisual} />}
+          {activeVisual && <div className="board-explanation" role="status"><span>{feedbackFen && <strong>{t('feedbackPosition')}. </strong>}{activeVisual.text}</span><button className="text-button" onClick={clearVisual}>{t('clearVisuals')}</button></div>}
           {explore && <VariationPlayer base={explore.base} moves={explore.moves} cursor={variationCursor(explore)} onCursor={(cursor) => setExplore({ ...explore, cursor })} playing={playing} onPlaying={setPlaying} speed={speed} onSpeed={setSpeed} label={explore.label} />}
           <div className="player-bottom">
             <div className="player-row">
@@ -300,10 +298,22 @@ export function GameWorkspace(props: WorkspaceProps) {
               {busy ? <Spinner /> : status}
             </span>
             {!explore ? (
-              <button className="outline-button" onClick={enterExplore}>
-                <ScanEye size={17} />
-                {t('explore')}
-              </button>
+              <div className="explore-actions">
+                {(!game || (game.mode !== 'computer' && !(analysisMode && game.mode !== 'analysis'))) && (
+                  <button
+                    className="outline-button"
+                    disabled={busy || !game?.moves.length || !atLatest}
+                    onClick={() => void mutate((g) => api<Game>(`/games/${g.id}/undo`, { revision: g.revision }))}
+                  >
+                    <Undo2 size={17} />
+                    {t('undo')}
+                  </button>
+                )}
+                <button className="outline-button" onClick={enterExplore}>
+                  <ScanEye size={17} />
+                  {t('explore')}
+                </button>
+              </div>
             ) : (
               <div className="explore-actions">
                 <button
@@ -378,7 +388,7 @@ export function GameWorkspace(props: WorkspaceProps) {
         <CoachPanel
           key={`${analysisMode}-${game?.id || 'new'}`}
           onPickSquare={(answer) => setSquareAnswer(() => answer)}
-          onCommitCandidate={!explore && atLatest && !finished && ((!game && analysisMode) || game?.mode === 'analysis' || (!analysisMode && isPlayerTurn)) ? (uci, base, revision) => commitCalculated(uci, base, revision) : undefined}
+          onCommitCandidate={!feedbackFen && !explore && atLatest && !finished && ((!game && analysisMode) || game?.mode === 'analysis' || (!analysisMode && isPlayerTurn)) ? (uci, base, revision) => commitCalculated(uci, base, revision) : undefined}
           orientation={displayOrientation}
           positionPending={busy}
           reviewMode={analysisMode}
@@ -386,11 +396,8 @@ export function GameWorkspace(props: WorkspaceProps) {
           fen={fen}
           game={game}
           preferences={playMode === 'independent' ? { ...preferences, coaching_mode: 'independent', feedback: 'none' } : preferences}
-          onVisual={(insight) => {
-            if (insight.id === 'hint-guide') { setHoveredMove(null); setPinnedMove(null); }
-            if (insight.fen !== fen) retryPosition(insight.fen);
-            setVisual(insight);
-          }}
+          onVisual={highlightVisual}
+          activeVisual={activeVisual}
           onRetry={async (base, rootPly) => {
             if (!game || rootPly === undefined) { retryPosition(base, rootPly); return; }
             try {
@@ -409,7 +416,7 @@ export function GameWorkspace(props: WorkspaceProps) {
           ply={at}
           onNavigate={(p) => {
             setPly(p);
-            setVisual(null);
+            clearVisual();
             setExplore(null);
           }}
           analysis={displayedAnalysis}
@@ -423,24 +430,14 @@ export function GameWorkspace(props: WorkspaceProps) {
         </span>
         <div>
           {game && game.mode !== 'computer' && !(analysisMode && game.mode !== 'analysis') && (
-            <>
-              <button
-                className="text-button"
-                disabled={busy || !game.moves.length || !!explore}
-                onClick={() => void mutate((g) => api<Game>(`/games/${g.id}/undo`, { revision: g.revision }))}
-              >
-                <Undo2 size={15} />
-                {t('undo')}
-              </button>
-              <button
-                className="text-button"
-                disabled={busy || !game.can_redo || !!explore}
-                onClick={() => void mutate((g) => api<Game>(`/games/${g.id}/redo`, { revision: g.revision }))}
-              >
-                <Redo2 size={15} />
-                {t('redo')}
-              </button>
-            </>
+            <button
+              className="text-button"
+              disabled={busy || !game.can_redo || !!explore}
+              onClick={() => void mutate((g) => api<Game>(`/games/${g.id}/redo`, { revision: g.revision }))}
+            >
+              <Redo2 size={15} />
+              {t('redo')}
+            </button>
           )}
           <button className="text-button" onClick={() => setImporting(true)}>
             <Upload size={15} />

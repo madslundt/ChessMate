@@ -1,6 +1,6 @@
 import { test, expect } from '../../src/frontend/node_modules/@playwright/test/index.mjs';
 import { Chess } from '../../src/frontend/node_modules/chess.js/dist/esm/chess.js';
-import { defaults, type Game } from '../../src/frontend/src/types';
+import { defaults, type Game, type Feedback } from '../../src/frontend/src/types';
 
 test('both sides keep readable move feedback below the board across moves, tabs and history', async ({ page }, info) => {
   const errors: string[] = [];
@@ -90,5 +90,92 @@ test('both sides keep readable move feedback below the board across moves, tabs 
   await expect(black).toHaveCSS('border-left-color', 'rgb(244, 163, 156)');
   await feedback.screenshot({ path: `/tmp/chessmate-last-feedback-${info.project.name}-dark.png` });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('bad-move labels highlight threats and the better move on their own positions without changing the game', async ({ page }, info) => {
+  const chess = new Chess();
+  const initialFen = chess.fen();
+  const moves = ['f3', 'e5', 'g4', 'Nc6'].map((san) => {
+    const before_fen = chess.fen(), move = chess.move(san);
+    return { uci: move.lan, san, before_fen, fen: chess.fen(), feedback: { classification: 'Good', text: 'Development.' } as Feedback };
+  });
+  const mate = new Chess(moves[2].fen);
+  mate.move('Qh4#');
+  moves[2].feedback = {
+    classification: 'Blunder', consequence: 'Moving the g-pawn leaves your king exposed to Qh4 checkmate.',
+    threats: [{ id: 'g4-mate', label: 'Qh4# · checkmate', text: 'Qh4 is checkmate in this continuation.',
+      fen: mate.fen(), claim_type: 'engine_threat', squares: ['h4', 'e1'], arrows: [{ from: 'h4', to: 'e1', color: 'red' }] }],
+    improvement: { uci: 'd2d4', san: 'd4', fen: moves[2].before_fen },
+  };
+  const game: Game = { id: 'feedback-highlights', initial_fen: initialFen, fen: chess.fen(), moves, revision: 4,
+    mode: 'training', player_color: 'white', difficulty: 2, status: 'playing', result: '*' };
+  const saved = JSON.stringify(game), mutations: string[] = [], errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.route('**/api/**', async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (route.request().method() !== 'GET' && pathname.startsWith('/api/games')) mutations.push(pathname);
+    let body: unknown = [];
+    if (pathname === '/api/profiles') body = [{ id: 'highlight-profile', name: 'Highlight test', preferences: {
+      ...defaults, coaching_mode: 'independent', play_mode: 'coach_first', auto_computer: false,
+      visual_arrows: 'on_request', highlight_threats: false, highlight_pieces: false, animate_variations: false,
+    } }];
+    else if (pathname === '/api/games/feedback-highlights') body = game;
+    else if (pathname.endsWith('/conversation')) body = { messages: [] };
+    else if (pathname.endsWith('/review')) body = { summary: '', topics: [] };
+    else if (pathname === '/api/settings/speech') body = { stt_mode: 'browser', tts_mode: 'browser' };
+    else if (pathname === '/api/analysis') body = { fen: route.request().postDataJSON().fen, candidates: [] };
+    await route.fulfill({ json: body });
+  });
+  await page.addInitScript(() => localStorage.setItem('chessmate.profile', 'highlight-profile'));
+  await page.goto('/play/feedback-highlights');
+  await expect(page).toHaveTitle(/Chessmate/);
+  await expect(page).toHaveURL('/play/feedback-highlights');
+  await expect(page.locator('vite-error-overlay')).toHaveCount(0);
+  const white = page.getByRole('region', { name: 'Last move feedback', exact: true }).getByRole('article', { name: 'White', exact: true });
+  const threat = white.getByRole('button', { name: 'Qh4# · checkmate', exact: true });
+  const better = white.getByRole('button', { name: 'd4', exact: true });
+  await expect(white).toContainText('A better move was d4.');
+  await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
+  await threat.click();
+  await expect(threat).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-square="h4"] [data-piece="bQ"]')).toHaveCount(1);
+  await expect(page.locator('[data-square="b8"] [data-piece="bN"]')).toHaveCount(1);
+  await expect(page.locator('[data-square="e1"] .board-square')).toHaveCSS('box-shadow', 'rgb(213, 148, 49) 0px 0px 0px 4px inset');
+  await expect(page.locator('path[marker-end*="h4-e1"]')).toBeAttached();
+  await expect(page.locator('.board-explanation')).toContainText('Showing the position for this explanation');
+  await page.screenshot({ path: `/tmp/chessmate-threat-label-${info.project.name}.png`, fullPage: true });
+  await threat.click();
+  await expect(threat).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
+  await better.click();
+  await expect(better).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-square="g2"] [data-piece="wP"]')).toHaveCount(1);
+  await expect(page.locator('[data-square="g4"] [data-piece="wP"]')).toHaveCount(0);
+  await expect(page.locator('path[marker-end*="d2-d4"]')).toBeAttached();
+  await page.getByRole('button', { name: 'Flip board', exact: true }).click();
+  await expect(page.locator('path[marker-end*="d2-d4"]')).toBeAttached();
+  await page.screenshot({ path: `/tmp/chessmate-improvement-label-${info.project.name}.png`, fullPage: true });
+  await page.getByRole('button', { name: 'Clear highlights', exact: true }).click();
+  await expect(better).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('[data-square="g4"] [data-piece="wP"]')).toHaveCount(1);
+  await expect(page.locator('[data-square="c6"] [data-piece="bN"]')).toHaveCount(1);
+  // The same controls work in the coaching timeline and the game review.
+  const coach = page.locator('.move-feedback-entry.white.blunder');
+  await coach.getByRole('button', { name: 'd4', exact: true }).click();
+  await expect(coach.getByRole('button', { name: 'd4', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Clear highlights', exact: true }).click();
+  await page.goto('/analyze/feedback-highlights');
+  await page.locator('.review-move').filter({ hasText: 'g4' }).click();
+  await page.getByRole('button', { name: 'Reveal engine feedback', exact: true }).click();
+  const review = page.getByRole('region', { name: 'Why this was bad', exact: true });
+  await review.getByRole('button', { name: 'Qh4# · checkmate', exact: true }).click();
+  await expect(page.locator('[data-square="h4"] [data-piece="bQ"]')).toHaveCount(1);
+  await review.getByRole('button', { name: 'd4', exact: true }).click();
+  await expect(page.locator('path[marker-end*="d2-d4"]')).toBeAttached();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(mutations).toEqual([]);
+  expect(JSON.stringify(game)).toBe(saved);
   expect(errors).toEqual([]);
 });

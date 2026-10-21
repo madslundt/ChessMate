@@ -16,6 +16,7 @@ from .chess_tools import move_facts, move_idea, move_insights, observations
 from .config import settings
 from .coaching_strategy import candidate_strategy, strategic_facts, strategic_insights
 from .opponent import OpponentService, OpponentUnavailable
+from .feedback_visuals import bad_move_visuals
 
 
 class EngineUnavailable(RuntimeError):
@@ -357,7 +358,7 @@ class EngineService:
             if candidate["uci"] != move.uci():
                 _, lines = move_insights(board, candidate, language)
                 alternative_lines.extend(lines)
-        return {**assessment, "text": text, "fen": board.fen(), "move": move.uci(), "facts": facts,
+        feedback = {**assessment, "text": text, "fen": board.fen(), "move": move.uci(), "facts": facts,
                 "insights": insights, "variations": variations, "alternative_variations": alternative_lines,
                 "strategy": strategy, "complexity": complexity,
                 "analysis_mode": mode,
@@ -365,6 +366,8 @@ class EngineService:
                 "played": played, "best": best, "alternatives": alternatives["candidates"],
                 "resulting_observations": resulting, "consequence": consequence, "budget_ms": time_ms, "perspective": "white" if board.turn else "black",
                 "takeaway": "Undersøg skakker, slag og trusler før dit næste træk." if language == "da" else "Before moving, look for checks, captures, and threats."}
+        feedback.update(bad_move_visuals(board, move, feedback, language))
+        return feedback
 
     def play(self, board: chess.Board, difficulty: int = 2) -> chess.Move:
         difficulty = max(1, min(5, difficulty))

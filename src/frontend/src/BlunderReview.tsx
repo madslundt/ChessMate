@@ -4,7 +4,8 @@ import { Chess } from 'chess.js';
 import { api } from './api';
 import { ErrorNotice, Spinner } from './components';
 import { useT } from './i18n';
-import type { Analysis, Candidate, Feedback, Preferences } from './types';
+import { FeedbackHighlights } from './FeedbackHighlights';
+import type { Analysis, Candidate, Feedback, Preferences, VisualInsight } from './types';
 
 function score(candidate?: Candidate): number | null {
   if (candidate?.mate != null) return (100000 - Math.abs(candidate.mate)) * (candidate.mate > 0 ? 1 : -1);
@@ -42,12 +43,16 @@ export function BlunderReview({
   feedback,
   preferences,
   onPreview,
+  onVisual,
+  activeVisual,
 }: {
   beforeFen: string;
   uci: string;
   feedback: Feedback;
   preferences: Preferences;
   onPreview: (candidate: Candidate) => void;
+  onVisual: (insight: VisualInsight) => void;
+  activeVisual?: VisualInsight | null;
 }) {
   const t = useT();
   const [showAlternatives, setShowAlternatives] = useState(false);
@@ -114,6 +119,7 @@ export function BlunderReview({
           ))}
         </ol>
       ))}
+      <FeedbackHighlights feedback={feedback} beforeFen={beforeFen} playedUci={uci} onVisual={onVisual} activeVisual={activeVisual} />
     </section>
   );
 }

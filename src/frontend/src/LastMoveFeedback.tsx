@@ -1,9 +1,10 @@
 import { useT, type TranslationKey } from './i18n';
-import type { Color, Game } from './types';
+import type { Color, Game, VisualInsight } from './types';
+import { FeedbackHighlights } from './FeedbackHighlights';
 
 const classifications = new Set(['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder', 'forced', 'uncertain']);
 
-export function LastMoveFeedback({ game, ply }: { game: Game; ply: number }) {
+export function LastMoveFeedback({ game, ply, onVisual, activeVisual }: { game: Game; ply: number; onVisual?: (insight: VisualInsight) => void; activeVisual?: VisualInsight | null }) {
   const t = useT();
   const initialBlack = game.initial_fen.split(' ')[1] === 'b';
   const firstMove = Number(game.initial_fen.split(' ')[5] || 1);
@@ -34,6 +35,7 @@ export function LastMoveFeedback({ game, ply }: { game: Game; ply: number }) {
               {move ? <>
                 <strong className="last-move-feedback-quality">{t(quality as TranslationKey)}</strong>
                 <p>{reason || feedback?.text || feedback?.explanation || feedback?.assessment || t('feedbackUnavailable')}</p>
+                {feedback && onVisual && index !== undefined && <FeedbackHighlights feedback={feedback} playedUci={move.uci} beforeFen={move.before_fen || (index === 0 ? game.initial_fen : game.moves[index - 1].fen)} onVisual={onVisual} activeVisual={activeVisual} />}
               </> : <p>{t('noMoves')}</p>}
             </article>
           );

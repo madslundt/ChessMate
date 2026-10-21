@@ -20,6 +20,7 @@ from .schemas import GameAnalysisRequest, GameCreate, MoveRequest, Preferences, 
 from .views import GameView
 from .coaching_models import CoachingEvidence, CoachingState
 from .coaching_state import public_state, state_key
+from .feedback_visuals import bad_move_visuals
 
 router = APIRouter(prefix="/games", tags=["Games"])
 
@@ -57,6 +58,12 @@ def state(game: Game, user: User | None = None, include_evidence: bool = False, 
                     and feedback.get("classification") not in ("Inaccuracy", "Mistake", "Blunder")):
                 feedback = None
             else:
+                before = original.get("before_fen") or (moves[-1]["fen"] if moves else game.initial_fen)
+                root = chess.Board(before)
+                visuals = bad_move_visuals(root, parse_move(root, original["uci"]), feedback, prefs.coach_language)
+                feedback = {**{key: value for key, value in feedback.items() if key not in ("threats", "improvement")}, **visuals}
+                if prefs.hide_best_moves and root.turn != (game.player_color == "white"):
+                    feedback["threats"] = [item for item in feedback.get("threats", []) if item.get("claim_type") != "engine_threat"]
                 hidden = set()
                 if not prefs.show_alternatives or prefs.hide_best_moves: hidden.update(("best", "alternatives", "alternative_variations"))
                 if prefs.feedback != "detailed": hidden.add("takeaway")

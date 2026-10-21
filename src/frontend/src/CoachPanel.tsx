@@ -17,6 +17,7 @@ import { VisualExplanation } from './VisualExplanation';
 import { ExplanationText } from './ExplanationText';
 import { ConsequenceComparison } from './ConsequenceComparison';
 import { SocraticProgress } from './SocraticProgress';
+import { FeedbackHighlights } from './FeedbackHighlights';
 const CalculationPractice = lazy(() => import('./CalculationPractice').then((module) => ({ default: module.CalculationPractice })));
 import type { Analysis, Candidate, Color, Game, Preferences, VisualInsight } from './types';
 function MoveFeedbackEntry({
@@ -28,6 +29,7 @@ function MoveFeedbackEntry({
   currentFen,
   orientation,
   onVisual,
+  activeVisual,
   onPreview,
   onRetry,
 }: {
@@ -39,6 +41,7 @@ function MoveFeedbackEntry({
   currentFen: string;
   orientation: Color;
   onVisual: (insight: VisualInsight) => void;
+  activeVisual?: VisualInsight | null;
   onPreview: (candidate: Candidate, baseFen?: string, rootPly?: number) => void;
   onRetry: (baseFen: string, rootPly?: number) => void;
 }) {
@@ -121,6 +124,7 @@ function MoveFeedbackEntry({
       {isCurrentFeedback && preferences.feedback === 'detailed' && feedback.takeaway && (
         <p className="takeaway">{feedback.takeaway}</p>
       )}
+      {moveBase && <FeedbackHighlights feedback={feedback} beforeFen={moveBase} playedUci={move.uci} onVisual={onVisual} activeVisual={activeVisual} />}
     </div>
   );
 }
@@ -129,6 +133,7 @@ interface Props {
   onPickSquare: (answer: (square: string) => void) => void;
   onCommitCandidate?: (uci: string, base: string, revision: number) => Promise<void>;
   onVisual: (insight: VisualInsight) => void;
+  activeVisual?: VisualInsight | null;
   onRetry: (baseFen: string, rootPly?: number) => void;
   positionPending: boolean;
   reviewMode: boolean;
@@ -151,6 +156,7 @@ export function CoachPanel({
   onCommitCandidate,
   onPickSquare,
   onVisual,
+  activeVisual,
   onRetry,
   positionPending,
   reviewMode,
@@ -285,6 +291,8 @@ export function CoachPanel({
       >
         {tab === 'review' ? (
           <GameReview
+            onVisual={onVisual}
+            activeVisual={activeVisual}
             orientation={orientation}
             game={game}
             ply={ply}
@@ -368,7 +376,7 @@ export function CoachPanel({
               {showCandidates && analysis?.fen === fen && <CandidateList orientation={orientation} analysis={analysis} fen={fen} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onPreview={onPreview} onVisual={onVisual} />}
               <div data-testid="coach-timeline">
                 {coachTimeline(exploring ? null : game, messages).map((entry) => entry.kind === 'move'
-                  ? <MoveFeedbackEntry key={`move-${entry.moveIndex}-${game?.moves[entry.moveIndex]?.uci}`} moveIndex={entry.moveIndex} game={game} preferences={preferences} exploring={exploring} feedbackPly={feedbackPly} currentFen={fen} orientation={orientation} onVisual={onVisual} onPreview={onPreview} onRetry={onRetry} />
+                  ? <MoveFeedbackEntry key={`move-${entry.moveIndex}-${game?.moves[entry.moveIndex]?.uci}`} moveIndex={entry.moveIndex} game={game} preferences={preferences} exploring={exploring} feedbackPly={feedbackPly} currentFen={fen} orientation={orientation} onVisual={onVisual} activeVisual={activeVisual} onPreview={onPreview} onRetry={onRetry} />
                   : <CoachMessages key={entry.message.id || `message-${messages.indexOf(entry.message)}`} messages={[entry.message]} busy={busy || positionPending} fen={fen} preferences={preferences} onVisual={onVisual} onPreview={onPreview} onResolve={(uci) => void send(preferences.coach_language === 'da' ? `Hvad hvis jeg spiller ${uci}?` : `What if I play ${uci}?`)} />)}
               </div>
               {hint && <HintCard hint={hint} hintLevel={hintLevel} hintMove={hintMove} hintVisual={hintVisual} preferences={preferences} highlightedMove={highlightedMove} onHoverMove={onHoverMove} onToggleMove={onToggleMove} onVisual={onVisual} onPreview={onPreview} />}

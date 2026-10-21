@@ -45,6 +45,7 @@ export interface Preferences {
 }
 export interface VisualInsight {
   id: string;
+  label?: string;
   text: string;
   fen: string;
   evidence_ids?: string[];
@@ -64,6 +65,8 @@ export interface VisualCoaching {
   variations?: CoachingVariation[];
 }
 export interface Feedback extends VisualCoaching {
+  threats?: VisualInsight[];
+  improvement?: { uci: string; san: string; fen: string };
   analysis_mode?: string;
   confidence?: string;
   classification?: string;

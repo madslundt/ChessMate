@@ -10,7 +10,7 @@ import { ActiveRecallReview } from './ActiveRecallReview';
 import { ErrorNotice, Spinner } from './components';
 import { useT } from './i18n';
 import { analysisPath, Link } from './navigation';
-import type { Candidate, Color, Game, Preferences, Review } from './types';
+import type { Candidate, Color, Game, Preferences, Review, VisualInsight } from './types';
 
 const qualities = ['best', 'excellent', 'good', 'inaccuracy', 'mistake', 'blunder', 'forced', 'uncertain'] as const;
 type Quality = (typeof qualities)[number];
@@ -76,6 +76,8 @@ export function GameReview({
   onPreview,
   onHoverMove,
   onToggleMove,
+  onVisual,
+  activeVisual,
   preferences,
 }: {
   orientation?: Color;
@@ -89,6 +91,8 @@ export function GameReview({
   onPreview: (candidate: Candidate, baseFen?: string, rootPly?: number) => void;
   onHoverMove: (uci: string | null) => void;
   onToggleMove: (uci: string) => void;
+  onVisual: (insight: VisualInsight) => void;
+  activeVisual?: VisualInsight | null;
   preferences: Preferences;
 }) {
   const t = useT();
@@ -175,6 +179,8 @@ export function GameReview({
                   <ConfidenceBadge mode={current.feedback?.analysis_mode} confidence={current.feedback?.confidence} />
                   {['blunder', 'mistake', 'inaccuracy'].includes(current.rating) && current.feedback && game ? (
                     <BlunderReview
+                      onVisual={onVisual}
+                      activeVisual={activeVisual}
                       key={`${game.id}-${current.ply}`}
                       beforeFen={current.before_fen || (current.ply === 1 ? game.initial_fen : game.moves[current.ply - 2].fen)}
                       uci={current.uci}

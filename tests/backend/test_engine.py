@@ -148,6 +148,14 @@ def test_bad_move_explains_material_lost_in_played_line(monkeypatch, language, b
     victim = "pawn on e5" if black else "pawn on e4"
     assert (victim if language == "en" else "bonde") in reason
     assert ("other replies" if language == "en" else "andre svar") in reason.lower()
+    threat = feedback["threats"][0]
+    after = board.copy()
+    after.push(moves[0])
+    assert threat["fen"] == after.fen()
+    assert threat["label"].startswith(line[1])
+    assert ("pawn" if language == "en" else "bonde") in threat["label"]
+    assert threat["arrows"] == [{"from": chess.square_name(moves[1].from_square), "to": chess.square_name(moves[1].to_square), "color": "red"}]
+    assert feedback["improvement"] == {"uci": best.uci(), "san": board.san(best), "fen": board.fen()}
 
 
 @pytest.mark.parametrize("language", ["en", "da"])
@@ -174,3 +182,33 @@ def test_bad_move_explains_en_passant_capture_on_the_victims_square(monkeypatch)
     feedback = grade_line(monkeypatch, board, "g4", ["g4", "hxg3"], "Kd2")
     assert "pawn on g4" in feedback["consequence"]
     assert "net loss of material worth 1 pawn" in feedback["consequence"]
+    threat = feedback["threats"][0]
+    assert "g4" in threat["squares"]
+    assert threat["arrows"] == [{"from": "h4", "to": "g3", "color": "red"}]
+
+
+@pytest.mark.parametrize("language", ["en", "da"])
+def test_mating_threat_highlights_checker_and_king_in_the_verified_mated_position(monkeypatch, language):
+    board = chess.Board()
+    board.push_san("f3")
+    board.push_san("e5")
+    feedback = grade_line(monkeypatch, board, "g4", ["g4", "Qh4#"], "Nc3", language)
+    threat = feedback["threats"][0]
+    position = chess.Board(threat["fen"])
+    assert position.is_checkmate()
+    assert threat["label"] == ("Qh4# · skakmat" if language == "da" else "Qh4# · checkmate")
+    assert set(threat["squares"]) == {"h4", "e1"}
+    assert threat["arrows"] == [{"from": "h4", "to": "e1", "color": "red"}]
+
+
+def test_geometric_threat_identifies_legal_capture_without_claiming_material_gain(monkeypatch):
+    board = chess.Board()
+    for san in ("e4", "e5", "Qh5", "Nc6"):
+        board.push_san(san)
+    feedback = grade_line(monkeypatch, board, "Qxe5+", ["Qxe5+"], "Bc4")
+    threat = feedback["threats"][0]
+    assert threat["claim_type"] == "board_geometry"
+    assert "Queen e5" in threat["label"]
+    assert "does not prove a material win" in threat["text"]
+    root = chess.Board(threat["fen"])
+    assert all(chess.Move.from_uci(arrow["from"] + arrow["to"]) in root.legal_moves for arrow in threat["arrows"])

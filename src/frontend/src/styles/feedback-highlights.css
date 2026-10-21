@@ -1,0 +1,39 @@
+.feedback-highlights {
+  margin-top: 9px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.feedback-threat-labels {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+.feedback-threat-labels > span {
+  color: var(--muted);
+}
+.feedback-highlight-label {
+  display: inline;
+  border: 0;
+  border-bottom: 1px dotted currentColor;
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--accent);
+  background: var(--soft);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.feedback-highlight-label:hover,
+.feedback-highlight-label[aria-pressed='true'] {
+  color: var(--surface);
+  background: var(--accent);
+}
+.feedback-highlight-label:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.feedback-highlights .feedback-improvement {
+  margin: 7px 0 0;
+  font-size: 12px;
+}
