@@ -28,6 +28,7 @@ test('new games default to adaptive and preserve a manual override', async ({ pa
   await expect(page.getByRole('slider')).toHaveCount(0);
   await page.getByRole('button', { name: 'Start game', exact: true }).click();
   await expect(page.getByTestId('chessboard')).toBeVisible();
+  await expect.poll(async () => (await (await page.request.get('/api/games', { headers })).json()).length).toBe(1);
   let games = await (await page.request.get('/api/games', { headers })).json();
   expect(games[0].difficulty_mode).toBe('adaptive');
   expect(games[0].difficulty).toBe(1);
