@@ -73,3 +73,35 @@ Only Nginx publishes a port, bound to loopback by default. Backend and database 
 Future physical-board or voice adapters can use the existing profile-scoped game and coaching boundaries. No such integration or competitive online assistance is implemented. The engine, verified fact catalog, and inference adapter can evolve separately.
 
 See [README.md](README.md) for installation, evaluation thresholds, inference protocol, operational limits, and exact commands; see [IMPLEMENTATION.md](IMPLEMENTATION.md) for actual verification results.
+
+## Automatic personalized learning
+
+```mermaid
+flowchart LR
+  Finished[Completed game or resignation] --> Outbox[Durable analysis queue]
+  Imported[Completed PGN import] --> Outbox
+  Outbox --> Verified[Verified move assessments]
+  Disclosures[Assistance events] --> Verified
+  Verified --> Profile[Owned learning profile]
+  Profile --> Opponent[Adaptive opponent level]
+  Profile --> Coach[Personalized coaching]
+  Profile --> Practice[Realistic training]
+  Verified --> Diary[Daily diary]
+  Profile --> Diary
+  Diary --> Calendar[Activity calendar]
+  Diary --> Requested[Explicit date-range report request]
+```
+
+Completed non-analysis games write a durable `game_learning_analyses` outbox record in the same game-command transaction. One bounded background worker claims records using a lease and atomic database update. It reuses trustworthy move assessments, evaluates missing decisions, deep-checks critical positions, checkpoints longer work, and saves versioned observations. Failed work has bounded retries and backoff; expired leases can be reclaimed after restart. A deterministic observation identifier prevents duplicate learning events when the same game is processed again. Interactive play retains the existing quick engine and separate deep engine.
+
+`assistance.py` appends disclosure events for general guidance, piece reveals, destination reveals, complete solutions and engine exploration. Game decisions retain their assistance classification and source. Undo preserves earlier disclosures; imported or old records without reliable metadata remain unknown. Training, imported games and actual game decisions stay distinguishable. The existing hint, candidate, coaching, visual and exploration flows feed these records.
+
+`automatic_learning.py` projects the latest 120 completed analyses into an owned `player_learning_states` snapshot. Concept conclusions require distinct games and observed opportunities. Recency weighting and separate independent counts qualify trends. Adaptive difficulty uses the existing five-level opponent scale, requires four eligible games and at least 32 independent decisions for a possible one-level change, and consumes each evidence window once. Those levels are not calibrated Elo estimates.
+
+`adaptive_diary.py` projects completed games into one `daily_diaries` row per profile and local date, protected by a unique key and transactional updates. Completion time in the configured IANA timezone determines the date; explicit resignation and declared PGN results retain their provenance and also complete the lifecycle; pending, failed and partial analysis stay visible. Narratives are generated from structured evidence with a deterministic bilingual fallback and are persisted until the underlying fingerprint changes. Rebuilding a diary never replaces immutable game or assistance events.
+
+Reports in `progress_reports` are created only by explicit requests. They aggregate daily structured evidence and deduplicate referenced decisions, retain diary versions and source fingerprints, qualify small comparisons and mark changed underlying records as outdated. Missing diary evidence remains explicit. No weekly or monthly report scheduler is introduced.
+
+`gameplay_training.py` chooses authentic game/exercise positions, prioritizes learning needs and avoids repeatedly serving the same position. It starts an ordinary authoritative game that can continue after any legal decision. Blind mode omits the focus from the visible game context. A focus without an eligible verified realistic position returns an explanatory error instead of mislabeling an unrelated puzzle.
+
+The three additive migrations (`c1ad7e201001`, `c1ad7e201002`, `c1ad7e201003`) preserve historical game data and mark old difficulty and assistance honestly. See [the implementation record](ADAPTIVE_COACHING.md) for acceptance checks, settings, rebuilding and measured verification limits.

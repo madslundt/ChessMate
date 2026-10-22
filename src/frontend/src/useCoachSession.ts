@@ -21,6 +21,7 @@ export function useCoachSession({
   tab,
   positionPending,
   onAnalysis,
+  ensureGame,
 }: {
   fen: string;
   game: Game | null;
@@ -30,6 +31,7 @@ export function useCoachSession({
   tab: string;
   positionPending: boolean;
   onAnalysis: (analysis: Analysis) => void;
+  ensureGame?: () => Promise<Game>;
 }) {
   const t = useT(),
     [messages, setMessages] = useState<ChatMessage[]>([]),
@@ -62,10 +64,16 @@ export function useCoachSession({
   const controller = useRef<AbortController | null>(null),
     currentFen = useRef(fen),
     scroll = useRef<HTMLDivElement>(null);
+  const previousGame = useRef(game?.id);
   useEffect(() => {
+    const previous = previousGame.current;
+    previousGame.current = game?.id;
+    // Saving the initial board must preserve the assistance action that created it.
+    if (!previous && game?.id) return;
     controller.current?.abort();
-    setMessages([]);
-    setState(null);
+    cancelAnalysis();
+    setMessages([]); setState(null); setHint(""); setHintMove(null); setHintVisual(null);
+    setHintLevel(0); setShowCandidates(false); setBusy(false); setCalculating(false);
   }, [game?.id]);
   useEffect(() => {
     currentFen.current = fen;
@@ -126,8 +134,12 @@ export function useCoachSession({
     time_ms: preferences.analysis_time_ms,
     depth: preferences.analysis_depth,
     candidates: preferences.candidate_count,
+    ...(!reviewMode && game ? { game_id: game.id } : {}),
   };
   async function compare(mode: "quick" | "deep" = "quick") {
+    let context = game;
+    try { if (!reviewMode && !context && ensureGame) context = await ensureGame(); }
+    catch (failure) { setError(failure); return; }
     cancelAnalysis();
     const requested = fen;
     const controller = new AbortController();
@@ -138,8 +150,8 @@ export function useCoachSession({
       const result = await runAnalysis(
         fen,
         mode === "deep"
-          ? { ...budget, time_ms: preferences.deep_analysis_time_ms || 5000 }
-          : budget,
+          ? { ...budget, ...(context && !reviewMode ? { game_id: context.id } : {}), time_ms: preferences.deep_analysis_time_ms || 5000 }
+          : { ...budget, ...(context && !reviewMode ? { game_id: context.id } : {}) },
         mode,
         controller.signal,
         (id) => {
@@ -182,6 +194,9 @@ export function useCoachSession({
       setHint(t("hintDisabled"));
       return;
     }
+    let context = game;
+    try { if (!reviewMode && !context && ensureGame) context = await ensureGame(); }
+    catch (failure) { setError(failure); return; }
     cancelAnalysis();
     const hintController = new AbortController();
     analysisController.current = hintController;
@@ -201,7 +216,7 @@ export function useCoachSession({
         "/hint",
         {
           fen,
-          game_id: game?.id,
+          game_id: context?.id,
           level,
           language: preferences.coach_language,
           question: [...messages].reverse().find((message) => message.role === "assistant" && message.fen === fen)?.hint_question
@@ -242,6 +257,9 @@ export function useCoachSession({
   }
   async function send(text = question) {
     if (!text.trim() || busy || positionPending) return;
+    let context = game;
+    try { if (!reviewMode && !context && ensureGame) context = await ensureGame(); }
+    catch (failure) { setError(failure); return; }
     const requested = fen;
     controller.current?.abort();
     const abort = new AbortController();
@@ -270,8 +288,8 @@ export function useCoachSession({
           fen,
           ...budget,
           question: text,
-          game_id: game?.id,
-          revision: game?.revision,
+          game_id: context?.id,
+          revision: context?.revision,
           explore: exploring,
           language: preferences.coach_language,
           history,

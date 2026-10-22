@@ -1,0 +1,311 @@
+.diary-layout {
+  display: grid;
+  grid-template-columns: minmax(290px, 0.85fr) minmax(320px, 1.3fr);
+  align-items: start;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.diary-calendar-panel,
+.diary-detail,
+.diary-reports {
+  padding: 24px;
+}
+.diary-month-nav,
+.diary-detail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.diary-month-nav .field {
+  margin: 0;
+}
+.diary-month-nav input {
+  min-width: 0;
+  width: 100%;
+}
+.diary-calendar {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+  margin: 20px 0;
+}
+.diary-weekday {
+  font-size: 0.68rem;
+  text-align: center;
+  color: var(--muted);
+  padding: 5px 0;
+  overflow: hidden;
+}
+.diary-date {
+  aspect-ratio: 1;
+  min-height: 36px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.diary-date:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.diary-date.has-activity {
+  background: color-mix(in srgb, var(--accent, #378466) 12%, transparent);
+}
+.diary-date[data-intensity="3"],
+.diary-date[data-intensity="4"] {
+  background: color-mix(in srgb, var(--accent, #378466) 25%, transparent);
+}
+.diary-date.selected {
+  border-color: var(--accent, #378466);
+  box-shadow: inset 0 0 0 1px var(--accent, #378466);
+}
+.diary-date small {
+  font-size: 0.58rem;
+  color: var(--accent, #378466);
+  margin-top: 2px;
+  font-weight: 700;
+}
+.diary-date:focus-visible {
+  outline: 2px solid var(--accent, #378466);
+  outline-offset: 2px;
+}
+.diary-empty {
+  min-height: 270px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--muted);
+  gap: 12px;
+}
+.diary-empty h2,
+.diary-empty p,
+.diary-detail-heading h2 {
+  margin: 0;
+}
+.diary-empty p {
+  max-width: 32ch;
+}
+.diary-status {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.diary-statistics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin: 22px 0 14px;
+}
+.diary-statistics div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diary-statistics strong {
+  font-size: 1.5rem;
+}
+.diary-statistics span,
+.diary-assistance,
+.diary-qualification {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.diary-narrative {
+  line-height: 1.75;
+  white-space: pre-line;
+}
+.diary-evidence h3 {
+  font-size: 0.95rem;
+  margin: 25px 0 9px;
+}
+.diary-evidence .lesson-row {
+  padding: 13px 0;
+  min-height: 0;
+}
+.diary-evidence .lesson-row > span {
+  min-width: 0;
+}
+.diary-evidence .lesson-row small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.diary-evidence .lesson-row svg {
+  flex-shrink: 0;
+}
+.diary-reports > h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 0;
+}
+.diary-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+}
+.diary-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 14px;
+}
+.diary-range .field {
+  margin-bottom: 0;
+  flex: 1;
+  min-width: 140px;
+}
+.diary-range .primary-button {
+  min-height: 42px;
+}
+.diary-report-detail {
+  padding-top: 24px;
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.diary-reports details {
+  margin-top: 24px;
+}
+.diary-reports summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.diary-saved-reports {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.diary-saved-reports .lesson-row {
+  width: 100%;
+  text-align: left;
+}
+.personal-learning {
+  margin-bottom: 24px;
+  padding: 24px;
+}
+.personal-learning h2 {
+  margin-top: 0;
+}
+.learning-concepts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+.learning-concept {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+.learning-concept > strong,
+.learning-concept > small {
+  display: block;
+  margin-bottom: 7px;
+}
+.learning-concept small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+.realistic-training {
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.realistic-training h2 {
+  margin-top: 0;
+}
+.realistic-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+.realistic-controls .field {
+  flex: 1;
+  min-width: 170px;
+  margin: 0;
+}
+.realistic-position {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.realistic-position p {
+  margin: 0;
+}
+@media (max-width: 850px) {
+  .diary-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .diary-calendar-panel {
+    max-width: 520px;
+    width: 100%;
+  }
+  .diary-empty {
+    min-height: 150px;
+  }
+}
+@media (max-width: 480px) {
+  .diary-calendar-panel,
+  .diary-detail,
+  .diary-reports,
+  .personal-learning,
+  .realistic-training {
+    padding: 16px;
+  }
+  .diary-calendar {
+    gap: 3px;
+  }
+  .diary-range > button {
+    width: 100%;
+  }
+  .diary-presets .outline-button {
+    flex: 1 0 40%;
+    font-size: 0.75rem;
+  }
+  .diary-detail-heading {
+    flex-wrap: wrap;
+  }
+  .diary-detail-heading h2 {
+    font-size: 1.05rem;
+  }
+  .diary-statistics span {
+    font-size: 0.65rem;
+  }
+  .realistic-position {
+    flex-wrap: wrap;
+  }
+}
+.training-context-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: var(--soft);
+  color: var(--ink);
+  margin-bottom: 20px;
+}
+.training-context-banner p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+.training-context-banner svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.diary-source-statistics { margin: 12px 0; padding-left: 12px; border-left: 2px solid var(--line); }
+.diary-source-statistics p { font-size: .76rem; color: var(--muted); line-height: 1.6; margin: 5px 0; }

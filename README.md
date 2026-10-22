@@ -7,7 +7,7 @@ Chessmate is a self-hosted chess training app for playing, studying positions, a
 1. **Play or choose a lesson.** Start a game against the computer, open an exercise, or pick a topic or practice session.
 2. **Explore a position.** Try moves on a separate analysis board, request candidate moves, or reveal hints. Exploring does not change the saved game unless you commit a move.
 3. **Review and learn.** Chessmate checks positions and moves with Stockfish, then uses those results for feedback, exercises, and progress recommendations. An optional local, OpenAI-compatible model can help phrase coaching from verified observations; without it, deterministic coaching still works.
-4. **Return to your progress.** Games, practice attempts, preferences, and coaching conversations are saved in the installation's database and can be revisited later.
+4. **Return to your progress.** Completed games automatically feed assistance-aware learning and a daily diary. Browse the Diary calendar, revisit a position, or explicitly generate and save a report for a chosen date range. Games, practice attempts, preferences, and coaching conversations remain saved in your installation.
 
 Visual coaching is a core part of the learning flow. Show supported ideas on the board, step through or play a legal variation, compare candidates, and return to the saved game. Coach-first play leaves time for questions, and calculation practice checks predicted replies before you commit a move.
 
@@ -30,6 +30,7 @@ The browser interface is built with React. A Python and FastAPI server manages g
 ## Documentation
 
 - [Setup, configuration, and everyday use](docs/README.md)
+- [Personalized coaching, daily diary, adaptive play and reports](docs/ADAPTIVE_COACHING.md)
 - [Architecture and data flow](docs/ARCHITECTURE.md)
 - [Implementation status, verification, and known limitations](docs/IMPLEMENTATION.md)
 - [Coaching quality benchmark: 40 positions at three teaching levels](docs/COACHING_BENCHMARK.md)

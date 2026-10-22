@@ -1,0 +1,38 @@
+{
+  "workload": "One legal four-ply completed game; fresh Stockfish analysis, 250ms quick / 5000ms critical budgets; six concurrent 100ms interactive requests",
+  "baseline_interactive": {
+    "requests": 6,
+    "median_ms": 108.79,
+    "max_ms": 268.01,
+    "samples_ms": [
+      268.01,
+      107.88,
+      109.7,
+      107.89,
+      106.89,
+      109.9
+    ]
+  },
+  "concurrent_interactive": {
+    "requests": 6,
+    "median_ms": 371.04,
+    "max_ms": 377.15,
+    "samples_ms": [
+      108.74,
+      377.15,
+      373.39,
+      370.72,
+      371.36,
+      283.57
+    ]
+  },
+  "background": {
+    "games": 1,
+    "plies": 4,
+    "elapsed_seconds": 8.086,
+    "plies_per_second": 0.495,
+    "attempts": 1,
+    "observations": 2
+  },
+  "limitations": "Small local SQLite workload; different baseline/concurrent positions, one background game, no multi-user saturation or production throughput inference."
+}

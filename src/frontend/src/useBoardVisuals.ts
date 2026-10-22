@@ -24,7 +24,8 @@ export function useBoardVisuals({ fen, preferences, highlightedMove, exploring, 
       return insight ? [...remaining, { insight, origin: fen, owner }] : remaining;
     });
   }, [fen]);
-  const displayed = previews.filter((preview) => preview.origin === fen).at(-1) || selection;
+  const preview = previews.filter((item) => item.origin === fen).at(-1);
+  const displayed = preview || selection;
   const visual = displayed?.insight;
   const feedback = visual?.id.startsWith('feedback-') && displayed?.origin === fen;
   const activeVisual = visual && (feedback || visual.fen === fen) ? visual : null;
@@ -34,7 +35,7 @@ export function useBoardVisuals({ fen, preferences, highlightedMove, exploring, 
   const move = !feedback && (highlightedMove || (exploring && preferences.explanation_mode !== 'text' ? lastMove : null));
   if (move && /^[a-h][1-8][a-h][1-8]/.test(move)) arrows.push({ startSquare: move.slice(0, 2), endSquare: move.slice(2, 4), color: '#378466' });
   return {
-    activeVisual, arrows,
+    activeVisual, arrows, previewing: !!preview && selection?.origin !== fen,
     feedbackFen: feedback ? visual?.fen : undefined,
     targets: !feedback && preferences.highlight_pieces === false && visible?.id !== 'hint-guide' ? [] : visible?.squares,
     previewVisual,

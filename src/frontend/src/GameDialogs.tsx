@@ -18,6 +18,7 @@ export function GameSetup({
   const t = useT(),
     [color, setColor] = useState(preferences.player_color),
     [difficulty, setDifficulty] = useState(preferences.difficulty),
+    [difficultyMode, setDifficultyMode] = useState(preferences.difficulty_mode || 'adaptive'),
     [mode, setMode] = useState(analysisMode ? 'analysis' : 'training'),
     [busy, setBusy] = useState(false);
   return (
@@ -27,7 +28,12 @@ export function GameSetup({
           e.preventDefault();
           setBusy(true);
           try {
-            await onStart({ mode, player_color: color, difficulty });
+            await onStart({
+              mode,
+              player_color: color,
+              difficulty,
+              difficulty_mode: difficultyMode,
+            });
           } finally {
             setBusy(false);
           }
@@ -47,11 +53,24 @@ export function GameSetup({
           </select>
         </Field>
         <Field label={t('difficulty')}>
-          <input type="range" min="1" max="5" value={difficulty} onChange={(e) => setDifficulty(+e.target.value)} />
-          <span>
-            {difficulty} / 5 · {t(difficulty > 3 ? 'intermediate' : 'beginner')}
-          </span>
+          <select
+            aria-label={t('difficulty')}
+            value={difficultyMode}
+            onChange={(event) => setDifficultyMode(event.target.value as typeof difficultyMode)}
+          >
+            <option value="adaptive">{t('adaptiveDifficulty')}</option>
+            <option value="manual">{t('manualDifficulty')}</option>
+          </select>
+          <small>{t('adaptiveDifficultyHelp')}</small>
         </Field>
+        {difficultyMode === 'manual' && (
+          <Field label={t('manualDifficulty')}>
+            <input type="range" min="1" max="5" value={difficulty} onChange={(e) => setDifficulty(+e.target.value)} />
+            <span>
+              {difficulty} / 5 · {t(difficulty > 3 ? 'intermediate' : 'beginner')}
+            </span>
+          </Field>
+        )}
         <div className="modal-footer">
           <button type="button" className="outline-button" onClick={onClose}>
             {t('cancel')}

@@ -8,15 +8,10 @@ import { defaults, type Preferences, type Progress } from './types';
 import { CalculationHistory } from './CalculationHistory';
 import { learnPath, Link, navigate } from './navigation';
 import { StudyPlan } from './StudyPlan';
+import { PersonalLearning } from './PersonalLearning';
 import { ImprovementTrend } from './ImprovementTrend';
 
-export function ProgressPage({
-  onLearn,
-  preferences = defaults,
-}: {
-  onLearn: () => void;
-  preferences?: Preferences;
-}) {
+export function ProgressPage({ onLearn, preferences = defaults }: { onLearn: () => void; preferences?: Preferences }) {
   const language = useContext(LocaleContext);
   const label = (en: string, da: string) => (language === 'da' ? da : en);
   const t = useT(),
@@ -28,7 +23,8 @@ export function ProgressPage({
   async function startPlanSession(kind: string, minutes: number) {
     try {
       const session = await api<{ id: string; exercises: { id: string }[] }>('/training/sessions', { kind, minutes });
-      if (session.exercises[0]) navigate(learnPath(kind === 'mixed' || kind === 'review' ? 'all' : kind, session.exercises[0].id, session.id));
+      if (session.exercises[0])
+        navigate(learnPath(kind === 'mixed' || kind === 'review' ? 'all' : kind, session.exercises[0].id, session.id));
       else onLearn();
     } catch {
       onLearn();
@@ -44,6 +40,7 @@ export function ProgressPage({
             : undefined
         }
       />
+      <PersonalLearning preferences={preferences} />
       <ErrorNotice error={progress.error} />
       {progress.isPending ? (
         <Spinner />
@@ -127,10 +124,15 @@ export function ProgressPage({
                     'senere lignende beslutninger var gode i motoranalysen.',
                   )}
                 </p>
+                <p>
+                  {typeof p.transfer.independent_decisions === 'number' && typeof p.transfer.independent_sound_decisions === 'number'
+                    ? `${p.transfer.independent_sound_decisions}/${p.transfer.independent_decisions} ${label('verified independent matching decisions were sound.', 'kontrollerede selvstændige lignende beslutninger var gode.')}`
+                    : label('Independent transfer is unknown for records without reliable assistance metadata.', 'Selvstændig overførsel er ukendt for historik uden pålidelige oplysninger om hjælp.')}
+                </p>
                 <p className="muted">
                   {label(
-                    'These observations link practice to later positions or verified patterns. They do not establish that practice caused the result.',
-                    'Observationerne forbinder træning med senere stillinger eller kontrollerede mønstre. De beviser ikke, at træningen var årsagen til resultatet.',
+                    'The total includes assisted and unknown decisions. Only verified independent decisions support independent transfer; repeated familiar positions remain weaker evidence than unfamiliar situations. These matches do not establish that practice caused the result.',
+                    'Det samlede antal omfatter beslutninger med hjælp og ukendt hjælpestatus. Kun kontrollerede selvstændige valg underbygger selvstændig overførsel; kendte stillinger er svagere evidens end nye situationer. Sammenfaldene beviser ikke, at træningen var årsagen til resultatet.',
                   )}
                 </p>
                 {p.transfer.samples
@@ -144,14 +146,12 @@ export function ProgressPage({
                     >
                       <span>
                         <strong>
-                      {sample.san} · {t(sample.classification.toLowerCase() as TranslationKey) || sample.classification}
+                          {sample.san} ·{' '}
+                          {t(sample.classification.toLowerCase() as TranslationKey) || sample.classification}
                         </strong>
                         <small>
                           {sample.match === 'same_position'
-                            ? label(
-                                'Same position revisited after practice',
-                                'Samme stilling genbesøgt efter træning',
-                              )
+                            ? label('Same position revisited after practice', 'Samme stilling genbesøgt efter træning')
                             : label(
                                 'Same verified pattern in a later decision',
                                 'Samme kontrollerede mønster i en senere beslutning',
@@ -185,8 +185,8 @@ export function ProgressPage({
                     </div>
                     {typeof topic.mastery === 'number' && (
                       <small>
-                        {label('Mastery estimate', 'Estimeret mestring')}: {Math.round(topic.mastery * 100)}%
-                        · {label('Independent solves', 'Selvstændige løsninger')}:{' '}
+                        {label('Mastery estimate', 'Estimeret mestring')}: {Math.round(topic.mastery * 100)}% ·{' '}
+                        {label('Independent solves', 'Selvstændige løsninger')}:{' '}
                         {Math.round((topic.independent_accuracy || 0) * 100)}% ·{' '}
                         {label('Practice level', 'Øvelsesniveau')} {topic.suggested_difficulty}/5
                         {topic.due ? ` · ${topic.due} ${label('due', 'klar')}` : ''}
@@ -211,9 +211,7 @@ export function ProgressPage({
                   <button
                     className="recommendation"
                     key={i}
-                    onClick={() =>
-                      typeof r === 'string' || !r.topic ? onLearn() : navigate(learnPath(r.topic))
-                    }
+                    onClick={() => (typeof r === 'string' || !r.topic ? onLearn() : navigate(learnPath(r.topic)))}
                   >
                     <BookOpen size={20} />
                     <div>
@@ -233,11 +231,7 @@ export function ProgressPage({
               <section className="panel topic-panel">
                 <h2>{label('Ideas to revisit', 'Idéer til repetition')}</h2>
                 {p.repeated_mistakes.map((item) => (
-                  <Link
-                    className="lesson-row"
-                    key={item.exercise_id}
-                    href={learnPath(item.topic, item.exercise_id)}
-                  >
+                  <Link className="lesson-row" key={item.exercise_id} href={learnPath(item.topic, item.exercise_id)}>
                     <span>
                       <strong>{t(item.topic as TranslationKey)}</strong>
                       <small>

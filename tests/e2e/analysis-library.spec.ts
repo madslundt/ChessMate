@@ -40,6 +40,10 @@ async function library(page: Page, empty = false) {
       }] });
       return;
     }
+    if (path === '/api/settings/speech') {
+      await route.fulfill({ json: { stt_mode: 'browser', tts_mode: 'browser' } });
+      return;
+    }
     if (path === '/api/games' && request.method() === 'GET') {
       await route.fulfill(state.failList
         ? { status: 503, json: { detail: 'Saved games are temporarily unavailable.' } }
@@ -58,6 +62,10 @@ async function library(page: Page, empty = false) {
     if (game && request.method() === 'GET') {
       if (path === `/api/games/${game.id}`) {
         await route.fulfill({ json: game });
+        return;
+      }
+      if (path === `/api/games/${game.id}/learning`) {
+        await route.fulfill({ json: { status: 'completed' } });
         return;
       }
       if (path === `/api/games/${game.id}/conversation`) {

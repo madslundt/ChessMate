@@ -34,6 +34,10 @@ from .fullgame_analysis import router as fullgame_analysis_router
 from .coaching_strategy import candidate_strategy, strategic_insights
 from .secure_profiles import router as secure_profiles_router
 from .speech_settings import router as speech_router
+from .adaptive_diary import router as diary_router
+from .gameplay_training import router as gameplay_training_router
+from .automatic_learning import automatic_learning, profile_context, router as automatic_learning_router
+from .assistance import record_assistance
 
 
 @asynccontextmanager
@@ -41,6 +45,15 @@ async def lifespan(_app: FastAPI):
     # PostgreSQL schema changes are owned by Alembic; SQLite is the zero-setup development mode.
     if settings.database_url.startswith("sqlite"):
         Base.metadata.create_all(engine)
+        game_columns = {column["name"] for column in inspect(engine).get_columns("games")}
+        additions = {"completed_at": "DATETIME", "difficulty_mode": "VARCHAR(10) NOT NULL DEFAULT 'manual'",
+                     "learning_source": "VARCHAR(10) NOT NULL DEFAULT 'game'", "assistance_tracked": "BOOLEAN NOT NULL DEFAULT false",
+                     "training_context": "JSON", "result_override": "VARCHAR(7)", "completion_reason": "VARCHAR(20)"}
+        with engine.begin() as connection:
+            for name, definition in additions.items():
+                if name not in game_columns:
+                    connection.execute(text(f"ALTER TABLE games ADD COLUMN {name} {definition}"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_games_user_completed ON games (user_id, completed_at)"))
         columns = {column["name"] for column in inspect(engine).get_columns("speech_settings")}
         if "tts_format" not in columns:
             with engine.begin() as connection:
@@ -49,9 +62,13 @@ async def lifespan(_app: FastAPI):
                 ))
     with SessionLocal() as db:
         seed_exercises(db)
-    yield
-    analysis_jobs.cancel_all()
-    engine_service.close()
+    automatic_learning.start(SessionLocal)
+    try:
+        yield
+    finally:
+        automatic_learning.stop()
+        analysis_jobs.cancel_all()
+        engine_service.close()
 
 
 app = FastAPI(title="Chessmate API", version="1.0.0", lifespan=lifespan)
@@ -116,6 +133,9 @@ api.include_router(llm_settings_router)
 api.include_router(calculation_router)
 api.include_router(analysis_jobs_router)
 api.include_router(fullgame_analysis_router)
+api.include_router(diary_router)
+api.include_router(gameplay_training_router)
+api.include_router(automatic_learning_router)
 
 
 @api.get("/health", tags=["System"])
@@ -188,6 +208,10 @@ def analyze(data: AnalysisRequest, user: User = Depends(current_user), db: Sessi
                                  "Undersøg varianten; en kort motorsøgning beviser ikke alle fortsættelser.")
     result["base_fen"] = data.fen
     result["moves"] = data.moves
+    if data.game_id:
+        record_assistance(db, user, data.game_id, board.fen(), "engine_assisted", "candidate_analysis",
+            revealed={"candidates": [candidate["uci"] for candidate in result["candidates"]]})
+        db.commit()
     return result
 
 
@@ -199,6 +223,9 @@ def hint(data: HintRequest, user: User = Depends(current_user), db: Session = De
     topic = saved.data.get("topic") if saved else None
     result = coach_service.hint(board, data.level, data.language, data.time_ms, data.depth, data.candidates, data.question, topic)
     db.add(HintUsage(user_id=user.id, fen=board.fen(), level=data.level))
+    category = "destination_revealed" if result.get("highlight_move") else "piece_revealed" if result.get("highlight_square") else "general_guidance"
+    record_assistance(db, user, data.game_id, board.fen(), category, "hint",
+        suggested_move=result.get("highlight_move"), revealed={key: result[key] for key in ("level", "text", "highlight_square", "highlight_move") if key in result})
     db.commit()
     return result
 
@@ -251,6 +278,7 @@ def coach(data: CoachRequest, user: User = Depends(current_user), db: Session = 
                         "last_player_decision": last_decision,
                         "assessment_counts": assessment_counts,
                         "actual_game_fen": positions[-1]}
+    game_context["learning_profile"] = profile_context(db, user)
     history = [m.model_dump() for m in data.history[-8:]]
     if not history and data.game_id:
         persisted = db.scalars(select(CoachingMessage).where(CoachingMessage.user_id == user.id,

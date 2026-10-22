@@ -259,6 +259,7 @@ async function reviewedGame(page: Page, playerColor: 'white' | 'black' = 'white'
     }];
     else if (path === `/api/games/${game.id}`) json = game;
     else if (path === `/api/games/${game.id}/review`) json = review;
+    else if (path === `/api/games/${game.id}/learning`) json = { status: 'completed' };
     else if (path === `/api/games/${game.id}/conversation`) json = { messages: [] };
     else if (path === '/api/settings/speech') json = { stt_mode: 'browser', tts_mode: 'browser' };
     else if (path === '/api/analysis') {
@@ -304,9 +305,13 @@ test('finished game shows counts and opens its classified review before chat', a
   const reviewTab = page.getByRole('tab', { name: 'Review game', exact: true });
   await expect(reviewTab).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('textbox', { name: 'Ask about this position…', exact: true })).toHaveCount(0);
-  const blunder = page.getByRole('button').filter({ hasText: 'g4' }).filter({ hasText: 'Blunder' });
-  await expect(blunder).toContainText('Check the threat to your king');
+  const blunder = page.locator('.review-move').filter({ hasText: 'g4' });
+  await expect(blunder).toBeVisible();
   await blunder.click();
+  await expect(page.getByRole('button', { name: 'Reveal engine feedback', exact: true })).toBeVisible();
+  await page.getByLabel('Your intended move', { exact: true }).fill('Check my king safety before advancing g4');
+  await page.getByRole('button', { name: 'Reveal engine feedback', exact: true }).click();
+  await expect(page.locator('.review-decision')).toContainText('Check the threat to your king');
   const filters = page.getByRole('group', { name: 'Review game', exact: true });
   const detail = page.locator('.review-decision');
   for (const label of ['Blunder · 1', 'All moves · 2']) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Chess } from 'chess.js';
+import { recordAssistance } from './assistance';
 import { api, ApiError } from './api';
 import { legalVariation, replayVariation, variationCursor, type Exploration } from './exploration';
 import { useT } from './i18n';
@@ -11,8 +12,9 @@ export interface WorkspaceProps {
   preferences: Preferences;
   selectGame: (game: Game) => void;
   analysisMode: boolean;
+  initialPly?: number | null;
 }
-export function useGameWorkspace({ activeGameId, preferences, selectGame, analysisMode }: WorkspaceProps) {
+export function useGameWorkspace({ activeGameId, preferences, selectGame, analysisMode, initialPly }: WorkspaceProps) {
   const t = useT(),
     client = useQueryClient(),
     [setup, setSetup] = useState(false),
@@ -22,7 +24,9 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     [explore, setExplore] = useState<Exploration | null>(null),
     [playing, setPlaying] = useState(false),
     [speed, setSpeed] = useState(preferences.variation_speed_ms || 900),
-    [playMode, setPlayMode] = useState(preferences.play_mode || (preferences.auto_computer ? 'automatic' : 'coach_first')),
+    [playMode, setPlayMode] = useState(
+      preferences.play_mode || (preferences.auto_computer ? 'automatic' : 'coach_first'),
+    ),
     [error, setError] = useState<unknown>(null),
     [busy, setBusy] = useState(false),
     [pendingMove, setPendingMove] = useState<{
@@ -34,6 +38,7 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     [analysis, setAnalysis] = useState<Analysis | null>(null),
     [notice, setNotice] = useState('');
   const lock = useRef(false);
+  const creatingGame = useRef<Promise<Game> | null>(null);
   const computerAttempt = useRef<string | null>(null);
   const gameQuery = useQuery({
     queryKey: ['game', activeGameId],
@@ -55,19 +60,33 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     preferences.orientation === 'player' ? game?.player_color || preferences.player_color : preferences.orientation;
   const displayOrientation = flipped ? (orientation === 'white' ? 'black' : 'white') : orientation;
   const analysisRequest = useQuery({
-    queryKey: ['explore-analysis', fen, preferences.analysis_time_ms, preferences.analysis_depth],
-    queryFn: () =>
-      api<Analysis>('/analysis', {
+    queryKey: [
+      'explore-analysis',
+      activeGameId,
+      game?.revision,
+      analysisMode,
+      !!(preferences.show_evaluation || preferences.show_evaluation_bar || explore),
+      fen,
+      preferences.analysis_time_ms,
+      preferences.analysis_depth,
+    ],
+    queryFn: async () => {
+      const disclosing = !!(preferences.show_evaluation || preferences.show_evaluation_bar || explore);
+      const context = disclosing && !analysisMode ? await ensureGame() : game;
+      return api<Analysis>('/analysis', {
         fen,
         time_ms: preferences.analysis_time_ms,
         depth: preferences.analysis_depth,
         candidates: 3,
-      }),
+        ...(disclosing && context && !analysisMode ? { game_id: context.id } : {}),
+      });
+    },
     enabled:
-      !!explore ||
-      preferences.show_evaluation ||
-      preferences.show_evaluation_bar ||
-      (!!game?.moves.length && isPlayerTurn && preferences.coaching_mode !== 'independent'),
+      (!activeGameId || !!game) &&
+      (!!explore ||
+        preferences.show_evaluation ||
+        preferences.show_evaluation_bar ||
+        (!!game?.moves.length && isPlayerTurn && preferences.coaching_mode !== 'independent')),
     staleTime: 60000,
   });
   const rootAnalysis = useQuery({
@@ -94,22 +113,33 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     const cursor = variationCursor(explore);
     if (cursor >= explore.moves.length) {
       if (preferences.return_after_playback !== false && explore.previewOnly) {
-        const timer = setTimeout(() => { setPlaying(false); setPly(explore.returnPly ?? null); setExplore(null); setAnalysis(null); }, speed);
+        const timer = setTimeout(() => {
+          setPlaying(false);
+          setPly(explore.returnPly ?? null);
+          setExplore(null);
+          setAnalysis(null);
+        }, speed);
         return () => clearTimeout(timer);
       }
-      setPlaying(false); return;
+      setPlaying(false);
+      return;
     }
-    const timer = setTimeout(() => setExplore((current) => current ? { ...current, cursor: variationCursor(current) + 1 } : null), speed);
+    const timer = setTimeout(
+      () => setExplore((current) => (current ? { ...current, cursor: variationCursor(current) + 1 } : null)),
+      speed,
+    );
     return () => clearTimeout(timer);
   }, [explore, playing, speed, preferences.return_after_playback]);
-  useEffect(() => { setPlaying(false); }, [activeGameId]);
   useEffect(() => {
-    setPly(null);
+    setPlaying(false);
+  }, [activeGameId]);
+  useEffect(() => {
+    setPly(initialPly ?? null);
     setExplore(null);
     setPendingMove(null);
     setAnalysis(null);
     setError(null);
-  }, [activeGameId]);
+  }, [activeGameId, initialPly]);
   useEffect(() => {
     if (gameQuery.error) setError(gameQuery.error);
   }, [gameQuery.error]);
@@ -118,6 +148,7 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
       mode: analysisMode ? 'analysis' : 'training',
       player_color: preferences.player_color,
       difficulty: preferences.difficulty,
+      difficulty_mode: preferences.difficulty_mode || 'adaptive',
       ...body,
     });
   }
@@ -126,6 +157,20 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     client.invalidateQueries({ queryKey: ['games'] });
     setPly(null);
     if (g.id !== activeGameId) selectGame(g);
+  }
+  async function ensureGame(): Promise<Game> {
+    if (game) return game;
+    if (activeGameId) throw new Error(t('stale'));
+    if (!creatingGame.current)
+      creatingGame.current = create()
+        .then((saved) => {
+          save(saved);
+          return saved;
+        })
+        .finally(() => {
+          creatingGame.current = null;
+        });
+    return creatingGame.current;
   }
   async function mutate(action: (g: Game) => Promise<Game>) {
     if (lock.current || (activeGameId && !game)) return false;
@@ -157,7 +202,12 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
       return;
     }
     if (analysisMode && game && game.mode !== 'analysis') {
-      setExplore({ base: actualFen, moves: [uci], revision: game.revision, atLatest: false });
+      setExplore({
+        base: actualFen,
+        moves: [uci],
+        revision: game.revision,
+        atLatest: false,
+      });
       setAnalysis(null);
       return;
     }
@@ -193,7 +243,13 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
       return () => clearTimeout(timer);
     }
   }, [playMode, computerReady, game?.id, game?.revision, busy]);
-  function enterExplore() {
+  async function enterExplore() {
+    try {
+      if (atLatest && !analysisMode) await recordAssistance(await ensureGame(), 'engine_assisted', 'exploration');
+    } catch (failure) {
+      setError(failure);
+      return;
+    }
     setPlaying(false);
     setExplore({
       base: actualFen,
@@ -203,14 +259,29 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     });
     setAnalysis(null);
   }
-  function preview(c: Candidate, baseFen?: string, rootPly?: number) {
+  async function preview(c: Candidate, baseFen?: string, rootPly?: number) {
+    try {
+      if (atLatest && !analysisMode && (!baseFen || baseFen === game?.fen))
+        await recordAssistance(game, 'full_solution', 'variation_preview', c.uci);
+    } catch (failure) {
+      setError(failure);
+      return;
+    }
     setPlaying(false);
     const base = baseFen || fen;
     const source = c.pv_uci?.length ? c.pv_uci : c.pv?.length ? c.pv : [c.uci];
     let moves: string[];
-    try { moves = legalVariation(base, source); } catch { setError(new Error(t('calculationIllegal'))); return; }
+    try {
+      moves = legalVariation(base, source);
+    } catch {
+      setError(new Error(t('calculationIllegal')));
+      return;
+    }
     if (moves.length < source.length) setNotice(t('legalLineOnly'));
-    if (!moves.length) { setError(new Error(t('calculationIllegal'))); return; }
+    if (!moves.length) {
+      setError(new Error(t('calculationIllegal')));
+      return;
+    }
     if (rootPly !== undefined) setPly(rootPly);
     setExplore({
       base,
@@ -226,14 +297,30 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     setAnalysis(null);
   }
   function retryPosition(base: string, rootPly?: number) {
-    try { new Chess(base); } catch { setError(new Error(t('calculationIllegal'))); return; }
+    try {
+      new Chess(base);
+    } catch {
+      setError(new Error(t('calculationIllegal')));
+      return;
+    }
     if (rootPly !== undefined) setPly(rootPly);
     setPlaying(false);
-    setExplore({ base, moves: [], cursor: 0, revision: game?.revision || 0, atLatest: false, previewOnly: true, label: t('retryHelp') });
+    setExplore({
+      base,
+      moves: [],
+      cursor: 0,
+      revision: game?.revision || 0,
+      atLatest: false,
+      previewOnly: true,
+      label: t('retryHelp'),
+    });
     setAnalysis(null);
   }
   async function commitCalculated(uci: string, base: string, revision: number) {
-    if (explore || !atLatest || base !== actualFen || (game && game.revision !== revision)) { setError(new Error(t('stale'))); return; }
+    if (explore || !atLatest || base !== actualFen || (game && game.revision !== revision)) {
+      setError(new Error(t('stale')));
+      return;
+    }
     if (game?.mode !== 'analysis' && !isPlayerTurn) return;
     await play(uci);
   }
@@ -253,7 +340,10 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     if (!game) return;
     try {
       const profileId = localStorage.getItem('chessmate.profile');
-      const res = await fetch(`/api/games/${game.id}/pgn`, { credentials: 'same-origin', headers: profileId ? { 'X-Profile-ID': profileId } : {} });
+      const res = await fetch(`/api/games/${game.id}/pgn`, {
+        credentials: 'same-origin',
+        headers: profileId ? { 'X-Profile-ID': profileId } : {},
+      });
       if (!res.ok) throw new Error(t('offline'));
       const url = URL.createObjectURL(await res.blob());
       const a = document.createElement('a');
@@ -270,7 +360,9 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
       ? pendingMove
       : null;
   const boardFen = displayedMove?.fen || fen;
-  const lastMove = explore ? explore.moves[variationCursor(explore) - 1] : displayedMove?.uci || game?.moves[at - 1]?.uci;
+  const lastMove = explore
+    ? explore.moves[variationCursor(explore) - 1]
+    : displayedMove?.uci || game?.moves[at - 1]?.uci;
   const captured = useMemo(() => {
     const c = new Chess(game?.initial_fen || START),
       pieces: { w: string[]; b: string[] } = { w: [], b: [] };
@@ -286,9 +378,13 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     finished && !explore && atLatest
       ? game?.status === 'checkmate'
         ? t('checkmate')
-        : game?.status === 'stalemate'
-          ? t('stalemate')
-          : t('draw')
+        : game?.status === 'resignation'
+          ? t('resignedGame')
+          : game?.status === 'stalemate'
+            ? t('stalemate')
+            : game?.result === '1/2-1/2'
+              ? t('draw')
+              : t(game?.result === (game?.player_color === 'white' ? '1-0' : '0-1') ? 'victory' : 'defeat')
       : chess.isCheckmate()
         ? t('checkmate')
         : chess.isStalemate()
@@ -315,7 +411,13 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     setFlipped,
     explore,
     setExplore,
-    playing, setPlaying, speed, setSpeed, playMode, setPlayMode, retryPosition,
+    playing,
+    setPlaying,
+    speed,
+    setSpeed,
+    playMode,
+    setPlayMode,
+    retryPosition,
     error,
     setError,
     busy,
@@ -338,6 +440,7 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     rootCp,
     create,
     save,
+    ensureGame,
     mutate,
     play,
     computerReady,

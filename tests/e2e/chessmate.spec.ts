@@ -255,7 +255,8 @@ test("black gameplay, dark preferences, repertoire practice and saved coaching",
     .click();
   await expect(page.getByText("Your turn", { exact: true })).toBeVisible();
   await move(page, "e7", "e5");
-  await expect(page.getByTestId("move-feedback")).toBeVisible();
+  await expect(page.getByTestId("move-feedback").last()).toBeVisible();
+  await expect(page.getByTestId("move-feedback").last()).toContainText("e5");
   await page
     .getByRole("textbox", { name: "Ask about this position…", exact: true })
     .fill("Why was my last move good or bad?");

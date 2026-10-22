@@ -84,22 +84,17 @@ export function History({
               <span className="history-piece">{g.player_color === 'white' ? '♔' : '♚'}</span>
               <div>
                 <strong>
-                  {t(
-                    g.mode === 'analysis' ? 'freeAnalysis' : g.mode === 'training' ? 'training' : 'computer',
-                  )}
+                  {t(g.mode === 'analysis' ? 'freeAnalysis' : g.mode === 'training' ? 'training' : 'computer')}
                 </strong>
                 <small>
                   {g.created_at && (
                     <>
-                      {new Date(g.created_at).toLocaleDateString(
-                        preferences.language === 'da' ? 'da-DK' : 'en-GB',
-                        {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        },
-                      )}{' '}
+                      {new Date(g.created_at).toLocaleDateString(preferences.language === 'da' ? 'da-DK' : 'en-GB', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}{' '}
                       ·{' '}
                     </>
                   )}
@@ -166,7 +161,10 @@ export function SettingsPage({
     previousPreferences.current = preferences;
     // Profiles hydrate after the first render; merge external changes without losing unrelated drafts.
     const changes = Object.fromEntries(
-      Object.entries(preferences).filter(([key, value]) => !dirtyFields.current.has(key as keyof Preferences) && value !== previous[key as keyof Preferences]),
+      Object.entries(preferences).filter(
+        ([key, value]) =>
+          !dirtyFields.current.has(key as keyof Preferences) && value !== previous[key as keyof Preferences],
+      ),
     );
     setDraft((current) => ({ ...current, ...changes }));
   }, [preferences]);
@@ -174,7 +172,11 @@ export function SettingsPage({
     dirtyFields.current.add(k);
     const manual = ['feedback', 'max_explanation_length', 'show_pv', 'candidate_count'].includes(k);
     if (manual) dirtyFields.current.add('skill_defaults');
-    setDraft((d) => ({ ...d, [k]: v, ...(manual ? { skill_defaults: false } : {}) }));
+    setDraft((d) => ({
+      ...d,
+      [k]: v,
+      ...(manual ? { skill_defaults: false } : {}),
+    }));
     setSaved(false);
   }
   const select = <K extends keyof Preferences>(
@@ -186,10 +188,7 @@ export function SettingsPage({
       <select
         value={String(draft[key])}
         onChange={(e) =>
-          set(
-            key,
-            (typeof draft[key] === 'number' ? Number(e.target.value) : e.target.value) as Preferences[K],
-          )
+          set(key, (typeof draft[key] === 'number' ? Number(e.target.value) : e.target.value) as Preferences[K])
         }
       >
         {options.map(([v, l]) => (
@@ -260,6 +259,10 @@ export function SettingsPage({
             {select('player_color', 'color', [
               ['white', 'white'],
               ['black', 'black'],
+            ])}
+            {select('difficulty_mode', 'difficulty', [
+              ['adaptive', 'adaptiveDifficulty'],
+              ['manual', 'manualDifficulty'],
             ])}
             {select(
               'difficulty',
@@ -332,6 +335,18 @@ export function SettingsPage({
             <h2>{t('analysis')}</h2>
           </div>
           <div className="settings-fields">
+            {toggle('automatic_analysis', 'automaticAnalysis')}
+            {toggle('automatic_diary', 'automaticDiary')}
+            <Field label={t('timezone')}>
+              <input
+                type="text"
+                required
+                maxLength={64}
+                value={draft.timezone || 'UTC'}
+                placeholder="Europe/Copenhagen"
+                onChange={(event) => set('timezone', event.target.value)}
+              />
+            </Field>
             <Field label={t('analysisTime')}>
               <input
                 type="number"

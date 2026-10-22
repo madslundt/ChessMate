@@ -85,7 +85,7 @@ test("compare offers three legal practice choices and previews them without chan
     await expect(page.locator(".candidate-title")).toHaveCount(3);
     for (const candidate of analysis.candidates) {
       expect(saved.legal_moves).toContain(candidate.uci);
-      await expect(page.locator(".candidate-title").filter({ hasText: candidate.san })).toHaveCount(1);
+      await expect(page.locator(".candidate-title").getByText(candidate.san, { exact: true })).toHaveCount(1);
     }
   }
   await page.locator(".candidate-title").first().click();
@@ -213,9 +213,10 @@ test("hints highlight the source then draw a move arrow without leaking extra vi
   await expect(page.getByTestId("position-hint")).toContainText(
     "Check the center.",
   );
-  await expect(
-    page.getByTestId("position-hint").getByRole("button"),
-  ).toHaveCount(0);
+  const firstHint = page.getByTestId("position-hint");
+  await expect(firstHint).not.toContainText("Play e4");
+  await expect(firstHint.getByRole("button", { name: "e4", exact: true })).toHaveCount(0);
+  await expect(firstHint.getByRole("button", { name: "Preview variation", exact: true })).toHaveCount(0);
   await expect(page.locator('path[marker-end*="e2-e4"]')).toHaveCount(0);
   const source = page.locator('[data-square="e2"] .board-square');
   const destination = page.locator('[data-square="e4"] .board-square');
@@ -450,6 +451,8 @@ test("retrying a verified game mistake opens a tracked private exercise and pres
   expect(saved.moves[0].feedback.classification).toBe("Blunder");
   await page.goto(`/analyze/${game.id}`);
   await page.locator(".review-move").click();
+  await page.getByLabel("Your intended move", { exact: true }).fill("Consider the forcing reply before capturing the pawn.");
+  await page.getByRole("button", { name: "Reveal engine feedback", exact: true }).click();
   await expect(page.locator(".review-decision")).toContainText(
     "Analysis confidence:",
   );

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { api } from './api';
 import { Board } from './Board';
+import { RealisticTraining } from './RealisticTraining';
 import { Repertoire } from './Repertoire';
 import { VariationPlayer } from './VariationPlayer';
 import { replayVariation } from './exploration';
@@ -106,6 +107,7 @@ export function Learn({ preferences, route }: { preferences: Preferences; route:
   return (
     <>
       <PageHeading title={t('learn')} />
+      <RealisticTraining preferences={preferences} />
       <ErrorNotice error={error || exercises.error} />
       <div className="practice-band">
         <div className="practice-symbol">
@@ -160,11 +162,7 @@ export function Learn({ preferences, route }: { preferences: Preferences; route:
         ))}
       </div>
       {category !== 'all' && (
-        <button
-          className="text-button topic-practice"
-          disabled={pending}
-          onClick={() => void practice(category, 5)}
-        >
+        <button className="text-button topic-practice" disabled={pending} onClick={() => void practice(category, 5)}>
           {t('startPractice')} · {t(category as TranslationKey)}
           <ArrowRight size={14} />
         </button>
@@ -291,7 +289,12 @@ function ExercisePlayer({
     if (level >= 2 || busy) return;
     setBusy(true);
     try {
-      const r = await api<{ text: string; level: number; move?: string; highlight_square?: string }>(`/exercises/${exercise.id}/hint`, {
+      const r = await api<{
+        text: string;
+        level: number;
+        move?: string;
+        highlight_square?: string;
+      }>(`/exercises/${exercise.id}/hint`, {
         level: Math.min(level + 1, 2),
         moves,
         branch_id: branchId,
@@ -460,11 +463,7 @@ function ExercisePlayer({
             </button>
           ) : (
             preferences.progressive_hints && (
-              <button
-                className="outline-button"
-                disabled={busy || level >= 2}
-                onClick={() => void requestHint()}
-              >
+              <button className="outline-button" disabled={busy || level >= 2} onClick={() => void requestHint()}>
                 <Lightbulb size={19} />
                 {t(level ? 'nextHint' : 'hint')}
               </button>

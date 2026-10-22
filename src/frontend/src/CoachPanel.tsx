@@ -138,6 +138,7 @@ interface Props {
   activeVisual?: VisualInsight | null;
   onRetry: (baseFen: string, rootPly?: number) => void;
   positionPending: boolean;
+  ensureGame?: () => Promise<Game>;
   reviewMode: boolean;
   onExplore: () => void;
   fen: string;
@@ -161,6 +162,7 @@ export function CoachPanel({
   activeVisual,
   onRetry,
   positionPending,
+  ensureGame,
   reviewMode,
   onExplore,
   fen,
@@ -184,7 +186,7 @@ export function CoachPanel({
     retry: false,
   });
   const [tab, setTab] = useState<'coach' | 'moves' | 'review'>(reviewMode ? 'review' : 'coach');
-  const { messages, question, setQuestion, busy, analyzing, showCandidates, hintLevel, hint, hintMove, hintVisual, calculating, setCalculating, error, setError, scroll, compare, requestHint, send, cancelAnalysis, teachingMode, setTeachingMode, state } = useCoachSession({ fen, game, preferences, exploring, reviewMode, tab, positionPending, onAnalysis });
+  const { messages, question, setQuestion, busy, analyzing, showCandidates, hintLevel, hint, hintMove, hintVisual, calculating, setCalculating, error, setError, scroll, compare, requestHint, send, cancelAnalysis, teachingMode, setTeachingMode, state } = useCoachSession({ fen, game, preferences, exploring, reviewMode, tab, positionPending, onAnalysis, ensureGame });
   const feedbackPly = game?.moves.slice(0, ply).map((move) => !!move.feedback).lastIndexOf(true) ?? -1;
   const feedbackMove = game?.moves[feedbackPly];
   const latest = feedbackMove?.feedback;

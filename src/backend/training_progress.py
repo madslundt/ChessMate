@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 
 import chess
-from sqlalchemy import select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.orm import Session
 
 from .exercises import CATEGORIES, objective_met, parse_move
@@ -71,9 +71,10 @@ def progress_data(db: Session, user: User) -> dict:
         topic["suggested_difficulty"] = max(1, min(5, target + adjustment))
         topic["strength"] = "developing" if topic["attempts"] < 3 else "strength" if topic["mastery"] >= .8 else "practice"
     total, correct = sum(t["attempts"] for t in topics.values()), sum(t["correct"] for t in topics.values())
-    games = db.scalars(select(Game).where(Game.user_id == user.id).order_by(Game.created_at)).all()
+    games = db.scalars(select(Game).where(Game.user_id == user.id).order_by(Game.created_at.desc()).limit(120)).all()
+    games.reverse()
     mistakes: dict[str, int] = defaultdict(int)
-    games_played = 0
+    games_played = db.scalar(select(func.count(Game.id)).where(Game.user_id == user.id, cast(Game.moves, String) != "[]")) or 0
     game_performance = []
     for game in games:
         board = chess.Board(game.initial_fen)
@@ -81,7 +82,7 @@ def progress_data(db: Session, user: User) -> dict:
         for move in game.moves:
             feedback = move.get("feedback") or {}
             # Only computer/training games provide a comparable, game-bound sample.
-            if game.mode in ("computer", "training") and board.turn == (game.player_color == "white"):
+            if game.mode in ("computer", "training") and game.learning_source == "game" and board.turn == (game.player_color == "white") and move.get("assistance", {}).get("category") == "independent":
                 classification = str(feedback.get("classification", "")).lower()
                 if classification in {"best", "excellent", "good", "inaccuracy", "mistake", "blunder", "forced"}:
                     assessed += 1
@@ -101,7 +102,6 @@ def progress_data(db: Session, user: User) -> dict:
                         pass
                 mistakes[topic] += 1
             board.push_uci(move["uci"])
-        games_played += bool(game.moves)
         if assessed:
             game_performance.append({
                 "game_id": game.id,
@@ -136,7 +136,7 @@ def progress_data(db: Session, user: User) -> dict:
             topic = topics[item["topic"]]
             item.update(label=labels[item["topic"]], reason=("Gentagne fejl peger på, at du bør øve idéen med en enklere øvelse." if topic["repeated_mistakes"] else
                         "Øv et emne med fejl i dine partier." if mistakes[item["topic"]] else "Styrk dette emne med en kort øvelse."))
-    return {"games_played": games_played, "attempts": total, "correct": correct,
+    return {"games_played": games_played, "evidence_window_games": 120, "attempts": total, "correct": correct,
             "accuracy": round(correct / total, 3) if total else 0, "hints_used": hint_count,
             "topics": list(topics.values()), "recommendations": recommendations, "due_reviews": len(due),
             "game_mistakes": dict(mistakes), "repeated_mistakes": repeated,
@@ -193,7 +193,7 @@ def learning_observations(db: Session, user: User, attempts: list, calculations:
             trained.append({"fen": position_key(event.fen), "topic": event.topic,
                 "pattern": {"kind": {"forks": "fork", "pins": "pin", "skewers": "skewer"}.get(event.topic, "engine")},
                 "created_at": event.created_at, "source": "calculation", "id": event.id})
-    by_game = {game.id: game for game in games if game.mode != "analysis"}
+    by_game = {game.id: game for game in games if game.mode != "analysis" and game.learning_source == "game"}
     by_position, by_pattern = defaultdict(list), {}
     for practice in sorted(trained, key=lambda item: item["created_at"]):
         by_position[practice["fen"]].append(practice)
@@ -220,7 +220,8 @@ def learning_observations(db: Session, user: User, attempts: list, calculations:
         except (ValueError, KeyError): continue
         names = sorted(set(observed_skills(board, played, feedback)) | set(observed_skills(board, best, feedback)))
         correct = feedback["classification"] in ("Best", "Excellent", "Good", "Forced")
-        observe(names, correct, correct, "game")
+        independent = record.get("assistance", {}).get("category") == "independent"
+        observe(names, correct, correct and independent, "game")
         eligible = []
         exact = previous_practice(by_position.get(position_key(board.fen()), []), event.created_at)
         if exact: eligible.append((True, exact))
@@ -234,10 +235,11 @@ def learning_observations(db: Session, user: User, attempts: list, calculations:
                 "match": "same_position" if exact else "same_verified_pattern", "practice_source": practice["source"],
                 "practice_id": practice["id"], "trained_at": utc_iso(practice["created_at"]),
                 "played_at": utc_iso(event.created_at), "classification": feedback["classification"], "sound": correct,
-                "evidence": {"best_move": best.uci(), "loss_cp": feedback.get("loss_cp"), "confidence": feedback["confidence"]}})
+                "assistance": record.get("assistance", {}).get("category", "unknown"),
+                "independent": independent, "evidence": {"best_move": best.uci(), "loss_cp": feedback.get("loss_cp"), "confidence": feedback["confidence"]}})
     for entry in skills.values():
         entry["accuracy"] = round(entry["correct"] / entry["observations"], 3)
-        entry["priority"] = "practice" if entry["mistakes"] >= 2 else "observe" if entry["mistakes"] else "strength"
+        entry["priority"] = "practice" if entry["mistakes"] >= 2 else "strength" if entry["observations"] >= 12 and entry["independent"] >= 12 and not entry["mistakes"] else "observe"
     return {"calculation": {"attempts": len(calculations), "assessed_plies": assessed, "accurate_plies": accurate,
         "accuracy": round(accurate / assessed, 3) if assessed else None,
         "response_accuracy": round(response_accurate / response_assessed, 3) if response_assessed else None,
@@ -246,6 +248,8 @@ def learning_observations(db: Session, user: User, attempts: list, calculations:
         "hints_used": sum(event.payload.get("hint_level", 0) > 0 for event in calculations)},
         "observed_skills": sorted(skills.values(), key=lambda entry: (-entry["mistakes"], entry["skill"])),
         "transfer": {"decisions": len(transfers), "sound_decisions": sum(item["sound"] for item in transfers),
+            "independent_decisions": sum(item["independent"] for item in transfers),
+            "independent_sound_decisions": sum(item["independent"] and item["sound"] for item in transfers),
             "samples": transfers[-20:], "qualification": ("Observerede matchende beslutninger efter træning; det dokumenterer ikke, at træningen var årsag til resultatet." if da else "Observed matching decisions after practice; this does not establish that practice caused the result.")}}
 
 

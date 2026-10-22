@@ -1,5 +1,9 @@
 # Implementation and verification record
 
+## Adaptive coaching enhancement — 22 October 2026
+
+The current adaptive-learning architecture, eight-phase acceptance record, migration/backfill guidance, usage guide, measured performance and known limits are maintained in [ADAPTIVE_COACHING.md](ADAPTIVE_COACHING.md). This supersedes the earlier source-completion summary below for automatic analysis, assistance-aware profiles, adaptive opponents, realistic training, daily diaries and saved date-range reports. Earlier test totals remain historical evidence and are not the final totals for this enhancement.
+
 Updated: 20 October 2026. Final source and verification record. Unchecked environment-dependent checks are not claims of completion. Source implementation, automated verification, and real deployment verification are recorded separately.
 
 ## Comprehensive coaching implementation — 20 October 2026

@@ -165,8 +165,18 @@ class EngineService:
             result["terminal"] = board.outcome(claim_draw=True).termination.name.lower()
             return result
         # A finite queue avoids unlimited worker backlog when many requests arrive.
-        if not self._lock.acquire(timeout=2): raise EngineUnavailable("Engine is busy; retry shortly")
+        if self._deep_worker and cancel_event is not None:
+            # Background callers share the deep process. An ordinary deep search
+            # lasts 5–20 seconds, so the interactive two-second timeout is too
+            # short here. Wait cooperatively, with a finite queue deadline.
+            deadline = time.monotonic() + 30
+            while not self._lock.acquire(timeout=.05):
+                if cancel_event.is_set(): raise AnalysisCancelled("Analysis cancelled")
+                if time.monotonic() >= deadline: raise EngineUnavailable("Deep analysis is busy; retry shortly")
+        elif not self._lock.acquire(timeout=2):
+            raise EngineUnavailable("Engine is busy; retry shortly")
         try:
+            if cancel_event and cancel_event.is_set(): raise AnalysisCancelled("Analysis cancelled")
             cached = self._cache.get(key)
             if cached and time.monotonic() - cached[0] < 600:
                 self._cache.move_to_end(key)

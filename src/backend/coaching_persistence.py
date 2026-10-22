@@ -4,7 +4,7 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from .coaching_models import CoachingEvidence, CoachingState
 from .coaching_state import state_key
-from .models import CoachingMessage
+from .models import CoachingMessage, User
 
 
 def persist_response(factory, user_id: str, game_id: str | None, fen: str, question: str, text: str, payload: dict, state: dict,
@@ -22,6 +22,16 @@ def persist_response(factory, user_id: str, game_id: str | None, fen: str, quest
                 if not user_message_id:
                     db.add(CoachingEvidence(message_id=asked.id, payload={"ply": payload.get("ply"), "revision": payload.get("revision")}))
                 db.add(CoachingEvidence(message_id=answer.id, payload=payload))
+                if game_id:
+                    from .assistance import record_assistance
+                    # Legal continuations and visual move arrows can reveal a decision
+                    # even when the prose avoids spelling out the best move.
+                    has_line = bool(payload.get("variations"))
+                    has_arrows = any(item.get("arrows") for item in payload.get("insights", []))
+                    category = "full_solution" if has_line else "engine_assisted" if has_arrows else "general_guidance"
+                    record_assistance(db, db.get(User, user_id), game_id, fen, category, "coach_response",
+                        revealed={"message_id": answer.id, "variation_count": len(payload.get("variations", [])),
+                                  "evidence_ids": payload.get("evidence_ids", [])})
                 key = state_key(user_id, game_id, fen)
                 saved = db.get(CoachingState, key)
                 if saved:

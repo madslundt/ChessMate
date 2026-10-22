@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, true
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, false, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .database import Base
@@ -66,9 +66,17 @@ class Game(Base):
     mode: Mapped[str] = mapped_column(String(20), default="training")
     player_color: Mapped[str] = mapped_column(String(5), default="white")
     difficulty: Mapped[int] = mapped_column(Integer, default=2)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result_override: Mapped[str | None] = mapped_column(String(7), nullable=True)
+    completion_reason: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    difficulty_mode: Mapped[str] = mapped_column(String(10), default="manual", server_default="manual")
+    learning_source: Mapped[str] = mapped_column(String(10), default="game", server_default="game")
+    assistance_tracked: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    training_context: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     revision: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
     __mapper_args__ = {"version_id_col": revision, "version_id_generator": False}
+    __table_args__ = (Index("ix_games_user_completed", "user_id", "completed_at"),)
 
 
 class GameEvent(Base):

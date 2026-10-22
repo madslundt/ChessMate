@@ -1,5 +1,5 @@
 import { ChessText } from './ChessText';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useFullGameAnalysis } from './useFullGameAnalysis';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, ChevronRight } from 'lucide-react';
@@ -59,12 +59,45 @@ export function PostGameSummary({ game }: { game: Game }) {
     <section className="post-game-summary panel" aria-label={t('gameOver')}>
       <h2>{t(outcome)}</h2>
       <QualityCounts game={game} />
+      <AutomaticLearningStatus gameId={game.id} />
       <Link className="primary-button" href={analysisPath(game.id)}>
         {t('analyzeGame')}
         <ArrowRight size={17} />
       </Link>
     </section>
   );
+}
+interface LearningStatus {
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'not_queued';
+  error?: string | null;
+}
+function AutomaticLearningStatus({ gameId }: { gameId: string }) {
+  const t = useT(), client = useQueryClient();
+  const [retrying, setRetrying] = useState(false), [error, setError] = useState<unknown>(null);
+  const status = useQuery({
+    queryKey: ['game-learning', gameId],
+    queryFn: ({ signal }) => api<LearningStatus>(`/games/${gameId}/learning`, undefined, undefined, signal),
+    retry: false,
+    refetchInterval: (query) => ['queued', 'running'].includes(query.state.data?.status || '') ? 3000 : false,
+  });
+  useEffect(() => {
+    if (status.data?.status !== 'completed') return;
+    void client.invalidateQueries({ queryKey: ['game', gameId] });
+    void client.invalidateQueries({ queryKey: ['learning-profile'] });
+    void client.invalidateQueries({ queryKey: ['diary-calendar'] });
+  }, [status.data?.status, gameId, client]);
+  async function retry() {
+    setRetrying(true); setError(null);
+    try { await api(`/games/${gameId}/learning/retry`, {}); await status.refetch(); }
+    catch (failure) { setError(failure); } finally { setRetrying(false); }
+  }
+  const state = status.data?.status;
+  return <div className="automatic-learning-status" aria-live="polite">
+    {status.isPending ? <Spinner /> : state && <p>{t(state === 'completed' ? 'automaticLearningComplete' : state === 'failed' ? 'automaticLearningFailed' : state === 'not_queued' ? 'automaticLearningOff' : 'automaticLearningPending')}</p>}
+    <ErrorNotice error={error || status.error} />
+    {['failed', 'not_queued'].includes(state || '') && <button className="outline-button" disabled={retrying} onClick={() => void retry()}>{retrying ? <Spinner /> : t('retryAnalysis')}</button>}
+    {state === 'completed' && <Link className="text-button" href="/diary">{t('diary')} →</Link>}
+  </div>;
 }
 export function GameReview({
   orientation,

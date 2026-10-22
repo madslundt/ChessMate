@@ -2,7 +2,7 @@ import { useSyncExternalStore, type AnchorHTMLAttributes } from 'react';
 import type { Page } from './types';
 
 export const categories = ['forks', 'pins', 'skewers', 'opening', 'middlegame', 'endgame'] as const;
-const pages: Page[] = ['play', 'learn', 'analyze', 'history', 'progress', 'settings'];
+const pages: Page[] = ['play', 'learn', 'analyze', 'history', 'progress', 'diary', 'settings'];
 export interface Route {
   page: Page;
   gameId: string | null;
@@ -10,6 +10,7 @@ export interface Route {
   exerciseId: string | null;
   sessionId: string | null;
   found: boolean;
+  ply: number | null;
 }
 
 export function parseRoute(path: string, search = ''): Route {
@@ -20,6 +21,7 @@ export function parseRoute(path: string, search = ''): Route {
     exerciseId: null,
     sessionId: null,
     found: true,
+    ply: null,
   };
   let parts: string[];
   try {
@@ -30,6 +32,8 @@ export function parseRoute(path: string, search = ''): Route {
   if (!parts.length) return route;
   if (!pages.includes(parts[0] as Page)) return { ...route, found: false };
   route.page = parts[0] as Page;
+  const requestedPly = new URLSearchParams(search).get('ply');
+  if (requestedPly && /^\d+$/.test(requestedPly) && Number(requestedPly) <= 10000) route.ply = Number(requestedPly);
   const validId = (id: string) => /^[\w-]{1,100}$/.test(id);
   if (route.page === 'play' || route.page === 'analyze') {
     route.found = parts.length === 1 || (parts.length === 2 && validId(parts[1]));

@@ -1,6 +1,6 @@
 export type Color = "white" | "black";
 export type Page =
-  "play" | "learn" | "analyze" | "history" | "progress" | "settings";
+  "play" | "learn" | "analyze" | "history" | "progress" | "diary" | "settings";
 export interface User {
   id: string;
   name: string;
@@ -18,6 +18,10 @@ export interface Preferences {
   theme: "light" | "dark" | "system";
   player_color: Color;
   difficulty: number;
+  difficulty_mode?: "adaptive" | "manual";
+  automatic_analysis?: boolean;
+  automatic_diary?: boolean;
+  timezone?: string;
   orientation: Color | "player";
   board_theme: "sage" | "wood" | "blue";
   piece_style: "classic" | "modern";
@@ -94,6 +98,16 @@ export interface MoveRecord {
   [key: string]: unknown;
 }
 export interface Game {
+  learning_source?: string;
+  completion_reason?: string | null;
+  training_context?: {
+    blind: boolean;
+    focus?: string;
+    minutes: number;
+    source?: string;
+  };
+  difficulty_mode?: "adaptive" | "manual";
+  analysis_status?: string;
   id: string;
   fen: string;
   initial_fen: string;
@@ -239,6 +253,8 @@ export interface Progress {
   transfer?: {
     decisions: number;
     sound_decisions: number;
+    independent_decisions?: number;
+    independent_sound_decisions?: number;
     qualification: string;
     samples: {
       game_id: string;
@@ -289,6 +305,10 @@ export const defaults: Preferences = {
   theme: "light",
   player_color: "white",
   difficulty: 2,
+  difficulty_mode: "adaptive",
+  automatic_analysis: true,
+  automatic_diary: true,
+  timezone: "UTC",
   orientation: "player",
   board_theme: "sage",
   piece_style: "classic",

@@ -164,6 +164,18 @@ class CoachService:
             plan = candidate_strategy(board, candidate, language, context["preferences"].get("complexity", "beginner"))
             for effect_index, effect in enumerate(plan["effects"][:3]):
                 statements[f"strategy_candidate_{index}_{effect_index}"] = effect["text"]
+        priorities = context.get("game", {}).get("learning_profile", {}).get("concepts", [])
+        if priorities:
+            item = priorities[0]
+            labels = {"forks": ("forks", "gafler"), "pins": ("pins", "bindinger"), "skewers": ("skewers", "spidninger"),
+                "opening": ("opening decisions", "åbningsbeslutninger"), "middlegame": ("middlegame decisions", "midtspilsbeslutninger"),
+                "endgame": ("endgame decisions", "slutspilsbeslutninger"), "defense": ("opponent threats", "modstanderens trusler"),
+                "forcing_moves": ("checks and captures", "skakker og slag"), "safety": ("piece and king safety", "brik- og kongesikkerhed"),
+                "exchanges": ("exchanges", "afbytninger"), "plans": ("planning", "planlægning")}
+            label = labels.get(item["topic"], (item["topic"].replace("_", " "), item["topic"].replace("_", " ")))[language == "da"]
+            if item["status"] in ("recurring_weakness", "emerging_weakness", "declining"):
+                statements["learning_focus"] = (f"Dine observerede selvstændige valg i {item['games']} partier peger på {label} som et øveområde. Brug den aktuelle stillings verificerede oplysninger til at undersøge modstanderens svar; det fastslår ikke, hvad du tænkte." if language == "da" else
+                    f"Observed independent decisions across {item['games']} games suggest practicing {label}. Use the verified evidence in this position to examine the opponent's replies; this does not establish what you were thinking.")
         return statements
 
     @staticmethod
@@ -237,6 +249,7 @@ class CoachService:
                 compact.update(question=context["user_question"], follow_up_to=context["question"])
                 focus = context.get("topic_focus") or choice_recommendation(context)
                 if focus: compact["follow_up_focus"] = {key: focus[key] for key in ("uci", "san")}
+            compact["learning_profile"] = game.get("learning_profile", {})
             compact.update(legal_moves=context.get("legal_moves", []),
                 history=[{"role": message["role"], "content": message["content"][-400:]} for message in context.get("history", [])[-4:]],
                 requested_candidates=[compact_candidate(candidate) for candidate in context.get("requested_candidates", [])[:2]],
@@ -250,7 +263,7 @@ class CoachService:
                 disclosure={"candidate_moves": reveal, "variations": line_allowed and reveal})
             # Keep provider prefill bounded; full evidence remains server-side for validation.
             initial_keys = fallback_keys(context, statements, reveal_requested(context) or not context["preferences"].get("hide_best_moves", True)) if context.get("preferences") and "question" in context else []
-            prioritized = list(dict.fromkeys(initial_keys +
+            prioritized = list(dict.fromkeys((["learning_focus"] if "learning_focus" in statements else []) + initial_keys +
                 [key for key in statements if key.startswith(("discovery_", "guided_", "strategy_candidate_0"))] + list(statements)))
             catalog, catalog_size = {}, 0
             for key in prioritized:
@@ -307,6 +320,8 @@ class CoachService:
                        "space": ("space", "plads"), "open_files": ("open file", "åben linje"),
                        "pawn_breaks": ("pawn break", "bondestød")}
         question = context["question"].lower()
+        if "learning_focus" in statements and any(term in question for term in ("thinking", "focus", "practice", "learn", "tænke", "øve", "lære")):
+            keys = ["learning_focus", *keys]
         strategic_keys = [key for key in statements if key.startswith("strategy_") and not key.startswith("strategy_candidate")]
         requested_strategy = any(term in question for terms in topic_terms.values() for term in terms)
         if requested_strategy or "plan" in question:

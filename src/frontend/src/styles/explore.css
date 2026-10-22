@@ -195,3 +195,7 @@
 .positional-insights { margin: 12px 0; padding: 10px; border: 1px solid var(--line); border-radius: 6px; font-size: .82rem; }
 .positional-insights article { padding: 8px 0; border-top: 1px solid var(--line); }
 .positional-insights article > small { color: var(--muted); }
+
+/* Pointer previews must not change document height and move their own hover target. */
+.game-layout > .board-panel { position: relative; }
+.board-explanation-preview { position: absolute; left: 20px; right: 20px; bottom: 16px; z-index: 10; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 7px; box-shadow: 0 6px 24px #0002; }

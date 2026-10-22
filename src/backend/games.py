@@ -29,6 +29,12 @@ def board_for(game: Game) -> chess.Board:
     return parse_board(game.initial_fen, [m["uci"] for m in game.moves])
 
 
+def completed_result(game: Game) -> str:
+    """Natural chess results take precedence; resignation/import results retain provenance."""
+    outcome = board_for(game).outcome(claim_draw=True)
+    return outcome.result() if outcome else game.result_override or "*"
+
+
 def owned_game(db: Session, game_id: str, user: User, revision: int | None = None) -> Game:
     query = select(Game).where(Game.id == game_id, Game.user_id == user.id)
     if revision is not None: query = query.with_for_update()
@@ -96,9 +102,12 @@ def state(game: Game, user: User | None = None, include_evidence: bool = False, 
     return {"id": game.id, "fen": board.fen(), "initial_fen": game.initial_fen, "moves": moves,
             "revision": game.revision, "mode": game.mode, "player_color": game.player_color,
             "can_redo": can_redo,
-            "difficulty": game.difficulty, "created_at": game.created_at.isoformat(),
-            "status": outcome.termination.name.lower() if outcome else "check" if board.is_check() else "playing",
-            "result": outcome.result() if outcome else "*", "turn": "white" if board.turn else "black",
+            "difficulty": game.difficulty, "difficulty_mode": game.difficulty_mode,
+            "learning_source": game.learning_source, "training_context": game.training_context,
+            "completed_at": game.completed_at.isoformat() if game.completed_at else None,
+            "created_at": game.created_at.isoformat(),
+            "status": outcome.termination.name.lower() if outcome else (game.completion_reason or "completed") if game.result_override else "check" if board.is_check() else "playing",
+            "completion_reason": game.completion_reason, "result": completed_result(game), "turn": "white" if board.turn else "black",
             "legal_moves": [m.uci() for m in board.legal_moves], "check": board.is_check()}
 
 
@@ -139,7 +148,13 @@ def feedback_for_learner(feedback: dict, color: str, player_color: str, language
 def commit_event(db: Session, game: Game, kind: str, payload: dict) -> None:
     game.revision += 1
     db.add(GameEvent(game_id=game.id, revision=game.revision, kind=kind, payload=payload))
-    try: db.commit()
+    from .automatic_learning import ensure_completed
+    try:
+        ensure_completed(db, game)
+        if kind == "move" and game.learning_source == "training":
+            from .automatic_learning import training_result
+            training_result(db, game, payload)
+        db.commit()
     except (StaleDataError, OperationalError):
         db.rollback()
         raise HTTPException(409, "This game changed. Refresh before trying again.") from None
@@ -157,12 +172,16 @@ def redo_payload(db: Session, game: Game) -> list[dict] | None:
 def create_game(data: GameCreate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     if data.fen and data.pgn: raise HTTPException(422, "Import either FEN or PGN, not both")
     records = []
+    imported_result = "*"
     try:
         board = parse_board(data.fen or chess.STARTING_FEN)
         initial_fen = board.fen()
         if data.pgn:
             imported = chess.pgn.read_game(io.StringIO(data.pgn))
             if imported is None or imported.errors: raise ValueError("PGN contains invalid moves")
+            imported_result = imported.headers.get("Result", "*")
+            if imported_result not in ("1-0", "0-1", "1/2-1/2", "*"):
+                raise ValueError("PGN contains an invalid result")
             board = imported.board()
             if not board.is_valid(): raise ValueError("Invalid PGN starting position")
             initial_fen = board.fen()
@@ -174,12 +193,23 @@ def create_game(data: GameCreate, user: User = Depends(current_user), db: Sessio
                 board.push(move)
                 record["fen"] = board.fen()
                 records.append(record)
+            outcome = board.outcome(claim_draw=True)
+            if outcome and imported_result != "*" and imported_result != outcome.result():
+                raise ValueError("PGN result contradicts the final chess position")
     except ValueError as exc: raise HTTPException(422, str(exc)) from exc
+    from .automatic_learning import ensure_completed, profile_for
+    difficulty = profile_for(db, user)["adaptive_difficulty"] if data.difficulty_mode == "adaptive" else data.difficulty
     game = Game(user_id=user.id, initial_fen=initial_fen, moves=records, mode=data.mode,
-                player_color=data.player_color, difficulty=data.difficulty)
+                player_color=data.player_color, difficulty=difficulty, difficulty_mode=data.difficulty_mode,
+                assistance_tracked=not bool(data.pgn), learning_source="import" if data.pgn else "game",
+                result_override=imported_result if imported_result != "*" else None,
+                completion_reason="imported_result" if imported_result != "*" else None)
     db.add(game)
     db.flush()
-    db.add(GameEvent(game_id=game.id, revision=0, kind="created", payload={"initial_fen": initial_fen, "moves": records, "mode": data.mode, "player_color": data.player_color, "difficulty": data.difficulty}))
+    db.add(GameEvent(game_id=game.id, revision=0, kind="created", payload={"initial_fen": initial_fen, "moves": records, "mode": data.mode, "player_color": data.player_color, "difficulty": difficulty, "difficulty_mode": data.difficulty_mode,
+        "assistance_tracked": not bool(data.pgn), "learning_source": game.learning_source,
+        "result": imported_result, "completion_reason": game.completion_reason}))
+    ensure_completed(db, game, user)
     db.commit()
     return state(game, user)
 
@@ -200,7 +230,7 @@ def get_game(game_id: str, user: User = Depends(current_user), db: Session = Dep
 def make_move(game_id: str, data: MoveRequest, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     game = owned_game(db, game_id, user, data.revision)
     board = board_for(game)
-    if board.is_game_over(claim_draw=True): raise HTTPException(409, "Game has ended")
+    if completed_result(game) != "*": raise HTTPException(409, "Game has ended")
     if game.mode != "analysis" and board.turn != (game.player_color == "white"):
         raise HTTPException(409, "It is the computer's turn")
     try: move = parse_move(board, data.move)
@@ -211,7 +241,10 @@ def make_move(game_id: str, data: MoveRequest, user: User = Depends(current_user
         feedback = {"classification": "Uncertain", "text": "Motoren er utilgængelig; trækket er gemt uden en motorvurdering." if prefs.coach_language == "da" else "Engine unavailable; move saved without an engine grade.",
                     "fen": board.fen(), "move": move.uci(), "confidence": "unavailable"}
     feedback = feedback_for_learner(feedback, "white" if board.turn else "black", game.player_color, prefs.coach_language)
+    from .assistance import decision_assistance
+    assistance = decision_assistance(db, game, board.fen(), move.uci())
     record = append_move(game, board, move, feedback, "player")
+    record["assistance"] = assistance
     commit_event(db, game, "move", record)
     return state(game, user, can_redo=redo_payload(db, game) is not None)
 
@@ -221,7 +254,7 @@ def computer_move(game_id: str, data: Revision, user: User = Depends(current_use
     game = owned_game(db, game_id, user, data.revision)
     board = board_for(game)
     if game.mode == "analysis": raise HTTPException(409, "Analysis games have no automatic opponent")
-    if board.is_game_over(claim_draw=True): raise HTTPException(409, "Game has ended")
+    if completed_result(game) != "*": raise HTTPException(409, "Game has ended")
     if board.turn == (game.player_color == "white"): raise HTTPException(409, "It is the player's turn")
     try: move = engine_service.play(board, game.difficulty)
     except EngineUnavailable as exc: raise HTTPException(503, str(exc)) from exc
@@ -236,6 +269,18 @@ def computer_move(game_id: str, data: Revision, user: User = Depends(current_use
     return state(game, user, can_redo=redo_payload(db, game) is not None)
 
 
+@router.post("/{game_id}/resign", response_model=GameView)
+def resign_game(game_id: str, data: Revision, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    game = owned_game(db, game_id, user, data.revision)
+    if game.mode == "analysis": raise HTTPException(409, "Analysis positions cannot be resigned")
+    if not game.moves: raise HTTPException(409, "Play a move before resigning this game")
+    if completed_result(game) != "*": raise HTTPException(409, "Game has ended")
+    game.result_override = "0-1" if game.player_color == "white" else "1-0"
+    game.completion_reason = "resignation"
+    commit_event(db, game, "resigned", {"result": game.result_override, "player_color": game.player_color})
+    return state(game, user)
+
+
 @router.post("/{game_id}/undo", response_model=GameView)
 def undo(game_id: str, data: Revision, user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict:
     game = owned_game(db, game_id, user, data.revision)
@@ -246,6 +291,7 @@ def undo(game_id: str, data: Revision, user: User = Depends(current_user), db: S
     if game.mode == "training" and len(game.moves) >= 2 and board_for(game).turn == (game.player_color == "white"):
         count = 2
     removed = game.moves[-count:]
+    game.result_override, game.completion_reason = None, None
     game.moves = game.moves[:-count]
     commit_event(db, game, "undo", {"removed": removed})
     return state(game, user, can_redo=True)
@@ -260,6 +306,11 @@ def redo(game_id: str, data: Revision, user: User = Depends(current_user), db: S
     if not restored:
         raise HTTPException(409, "No moves to redo")
     restored = [{**move, "timeline_revision": game.revision + 1} for move in restored]
+    # Replaying a known continuation is useful review, but cannot become a fresh
+    # independently discovered decision after undoing and revealing assistance.
+    for record in restored:
+        if record.get("source") == "player":
+            record["assistance"] = {**record.get("assistance", {}), "category": "engine_assisted", "replayed": True}
     game.moves = [*game.moves, *restored]
     commit_event(db, game, "redo", {"restored": restored})
     return state(game, user, can_redo=False)
@@ -273,6 +324,8 @@ def export_pgn(game_id: str, user: User = Depends(current_user), db: Session = D
     exported.headers["Event"] = "Chessmate training"
     exported.headers["White"] = user.name if game.player_color == "white" else "Computer"
     exported.headers["Black"] = user.name if game.player_color == "black" else "Computer"
+    exported.headers["Result"] = completed_result(game)
+    if game.completion_reason: exported.headers["Termination"] = game.completion_reason
     return str(exported)
 
 
@@ -299,6 +352,8 @@ def analyze_game(game_id: str, data: GameAnalysisRequest, user: User = Depends(c
     if analyzed:
         game.moves = records
         commit_event(db, game, "analysis", {"start_ply": data.start_ply, "end_ply": end, "analyzed": analyzed})
+    from .automatic_learning import update_manual_learning
+    update_manual_learning(db, game)
     return {"game_id": game.id, "revision": game.revision, "analyzed": analyzed, "total": len(records),
             "next_ply": end, "complete": end == len(records)}
 
@@ -323,7 +378,7 @@ def review(game_id: str, user: User = Depends(current_user), db: Session = Depen
     return {"game_id": game.id, "revision": game.revision,
             "summary": f"Gennemgået {count} beslutninger fra begge sider. Fokusér på de mest lærerige stillinger nedenfor." if da else f"Reviewed {count} decisions across both sides. Focus on the most instructive positions below.",
             "positives": positives[:3], "mistakes": sorted(mistakes, key=lambda i: i["feedback"].get("loss_cp", 0), reverse=True)[:5],
-            "topics": list(dict.fromkeys(topics))[:2], "result": board_for(game).result(claim_draw=True),
+            "topics": list(dict.fromkeys(topics))[:2], "result": completed_result(game),
             "limitations": "Estimater fra korte søgninger; taktiske mønstre angives kun efter selvstændig verifikation." if da else "Short-search estimates; tactical motifs are included only when independently verified."}
 
 

@@ -1,0 +1,151 @@
+{
+  "python": "3.14.6",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "database": "isolated temporary SQLite",
+  "repeats": 3,
+  "corpus": "Legal four-ply completed games; two precomputed player observations per game; three games per date.",
+  "limits": "Read/API projection benchmark only; excludes Stockfish throughput, PostgreSQL, network, and multi-user engine contention.",
+  "results": [
+    {
+      "games": 100,
+      "active_days": 34,
+      "metrics": {
+        "profile": {
+          "median_ms": 3.61,
+          "max_ms": 33.02,
+          "database_queries": 2,
+          "peak_python_mib": 0.09,
+          "local_budget_ms": 250,
+          "within_budget": true
+        },
+        "existing_progress": {
+          "median_ms": 10.36,
+          "max_ms": 14.12,
+          "database_queries": 10,
+          "peak_python_mib": 0.65,
+          "local_budget_ms": 1000,
+          "within_budget": true
+        },
+        "calendar": {
+          "median_ms": 4.14,
+          "max_ms": 6.61,
+          "database_queries": 3,
+          "peak_python_mib": 0.32,
+          "local_budget_ms": 250,
+          "within_budget": true
+        },
+        "diary": {
+          "median_ms": 5.26,
+          "max_ms": 9.23,
+          "database_queries": 8,
+          "peak_python_mib": 0.15,
+          "local_budget_ms": 500,
+          "within_budget": true
+        },
+        "report_30_days": {
+          "median_ms": 14.48,
+          "max_ms": 14.56,
+          "database_queries": 9,
+          "peak_python_mib": 0.74,
+          "local_budget_ms": 2000,
+          "within_budget": true
+        },
+        "four_concurrent_profile_reads_ms": 12.76
+      }
+    },
+    {
+      "games": 1000,
+      "active_days": 334,
+      "metrics": {
+        "profile": {
+          "median_ms": 4.18,
+          "max_ms": 4.68,
+          "database_queries": 2,
+          "peak_python_mib": 0.09,
+          "local_budget_ms": 250,
+          "within_budget": true
+        },
+        "existing_progress": {
+          "median_ms": 15.03,
+          "max_ms": 47.48,
+          "database_queries": 10,
+          "peak_python_mib": 0.81,
+          "local_budget_ms": 1000,
+          "within_budget": true
+        },
+        "calendar": {
+          "median_ms": 5.25,
+          "max_ms": 5.78,
+          "database_queries": 3,
+          "peak_python_mib": 0.33,
+          "local_budget_ms": 250,
+          "within_budget": true
+        },
+        "diary": {
+          "median_ms": 6.17,
+          "max_ms": 7.55,
+          "database_queries": 8,
+          "peak_python_mib": 0.15,
+          "local_budget_ms": 500,
+          "within_budget": true
+        },
+        "report_30_days": {
+          "median_ms": 14.36,
+          "max_ms": 17.24,
+          "database_queries": 9,
+          "peak_python_mib": 0.74,
+          "local_budget_ms": 2000,
+          "within_budget": true
+        },
+        "four_concurrent_profile_reads_ms": 13.99
+      }
+    },
+    {
+      "games": 10000,
+      "active_days": 3334,
+      "metrics": {
+        "profile": {
+          "median_ms": 3.0,
+          "max_ms": 3.73,
+          "database_queries": 2,
+          "peak_python_mib": 0.09,
+          "local_budget_ms": 250,
+          "within_budget": true
+        },
+        "existing_progress": {
+          "median_ms": 22.05,
+          "max_ms": 24.5,
+          "database_queries": 10,
+          "peak_python_mib": 0.76,
+          "local_budget_ms": 1000,
+          "within_budget": true
+        },
+        "calendar": {
+          "median_ms": 4.38,
+          "max_ms": 5.75,
+          "database_queries": 3,
+          "peak_python_mib": 0.32,
+          "local_budget_ms": 250,
+          "within_budget": true
+        },
+        "diary": {
+          "median_ms": 4.9,
+          "max_ms": 8.16,
+          "database_queries": 8,
+          "peak_python_mib": 0.15,
+          "local_budget_ms": 500,
+          "within_budget": true
+        },
+        "report_30_days": {
+          "median_ms": 13.17,
+          "max_ms": 15.7,
+          "database_queries": 9,
+          "peak_python_mib": 0.74,
+          "local_budget_ms": 2000,
+          "within_budget": true
+        },
+        "four_concurrent_profile_reads_ms": 11.08
+      }
+    }
+  ]
+}

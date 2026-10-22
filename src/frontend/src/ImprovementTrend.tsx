@@ -23,7 +23,11 @@ export function ImprovementTrend({ games }: { games: GamePerformance[] }) {
   const previous = games.slice(-10, -5);
   const recentRate = average(recent);
   const previousRate = average(previous);
-  const delta = recentRate !== null && previousRate !== null ? Math.round((recentRate - previousRate) * 100) : null;
+  const observedMoves = (items: GamePerformance[]) => items.reduce((sum, item) => sum + item.assessed_moves, 0);
+  const comparable = recent.filter((item) => item.assessed_moves > 0).length >= 3
+    && previous.filter((item) => item.assessed_moves > 0).length >= 3
+    && observedMoves(recent) >= 20 && observedMoves(previous) >= 20;
+  const delta = comparable && recentRate !== null && previousRate !== null ? Math.round((recentRate - previousRate) * 100) : null;
   if (!games.length) {
     return (
       <section className="panel improvement-trend">
@@ -37,17 +41,19 @@ export function ImprovementTrend({ games }: { games: GamePerformance[] }) {
       <div className="improvement-heading">
         <div>
           <h2><TrendingUp size={20} /> {da ? 'Udvikling i trækkvalitet' : 'Move-quality trend'}</h2>
-          <p className="muted">{da ? 'Motorvurderede træk i dine computer- og træningspartier. Det er et træningssignal, ikke en rating.' : 'Engine-assessed moves in your computer and training games. This is a practice signal, not a rating.'}</p>
+          <p className="muted">{da ? 'Selvstændige motorvurderede beslutninger i komplette partier. Beslutninger med hjælp, ukendt historik og positionsøvelser tæller ikke med.' : 'Independent engine-assessed decisions in complete games. Assisted decisions, unknown history and position drills are excluded.'}</p>
         </div>
         {recentRate !== null && <strong className="improvement-rate">{Math.round(recentRate * 100)}%</strong>}
       </div>
+      <p className="muted">{observedMoves(recent)} {da ? 'selvstændige vurderede beslutninger fra' : 'independent assessed decisions across'} {recent.length} {da ? 'seneste partier' : 'recent games'}</p>
+      {delta === null && <p className="muted">{da ? 'En sammenligning kræver mindst tre partier og tyve selvstændige vurderede beslutninger i hver periode.' : 'A comparison needs at least three games and twenty independent assessed decisions in each period.'}</p>}
       {delta !== null && (
         <p className="improvement-comparison">
           {da ? (delta > 0 ? 'Op' : delta < 0 ? 'Ned' : 'Uændret') : (delta > 0 ? 'Up' : delta < 0 ? 'Down' : 'Unchanged')} {Math.abs(delta)} {da ? 'procentpoint fra de foregående' : 'percentage points from the previous'} {previous.length} {da ? 'vurderede partier' : 'assessed games'}
           <small> · {recent.length} {da ? 'seneste partier' : 'recent games'}</small>
         </p>
       )}
-      <div className="improvement-bars" role="img" aria-label={da ? 'Motorens vurdering af gode træk i seneste partier' : 'Engine-assessed sound move rate for recent games'}>
+      <div className="improvement-bars" role="img" aria-label={da ? 'Motorens vurdering af gode selvstændige træk i seneste partier' : 'Engine-assessed sound independent move rate for recent games'}>
         {recent.map((game) => (
           <Link key={game.game_id} href={`/analyze/${encodeURIComponent(game.game_id)}`} title={`${game.date}: ${game.sound_moves}/${game.assessed_moves} ${da ? 'gode træk' : 'sound moves'}`}>
             <span style={{ height: `${Math.max(5, Math.round(game.sound_rate * 72))}px` }} />

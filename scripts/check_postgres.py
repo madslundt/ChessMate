@@ -113,6 +113,68 @@ def api_checks() -> None:
         assert "event: token" in chat.text and "event: done" in chat.text and "deterministic" in chat.text
         conversation = request(client, "GET", url + "/conversation").json()["messages"]
         assert [m["role"] for m in conversation] == ["user", "assistant"]
+        # Durable adaptive lifecycle on the actual PostgreSQL schema, including
+        # assistance, daily idempotency, source-based report staleness and ownership.
+        import time
+        from concurrent.futures import ThreadPoolExecutor
+        from src.backend.diary_models import DailyDiary
+        from sqlalchemy import func
+        from src.backend.models import now
+        mate = "7k/5Q2/6K1/8/8/8/8/8 w - - 0 1"
+        training = request(client, "POST", "/api/training/games", 201,
+                           json={"focus": "mixed", "blind": True}).json()
+        assert training["learning_source"] == "training" and "focus" not in training["training_context"]
+        completed = []
+        for _ in range(2):
+            pending = request(client, "POST", "/api/games", 201, json={"mode": "computer", "fen": mate}).json()
+            assert pending["difficulty_mode"] == "adaptive"
+            request(client, "POST", "/api/hint", json={"game_id": pending["id"], "fen": mate, "level": 1})
+            request(client, "POST", "/api/hint", json={"game_id": pending["id"], "fen": mate, "level": 2})
+            completed.append(pending)
+        def complete(pending):
+            return request(client, "POST", f"/api/games/{pending['id']}/moves",
+                           json={"move": "f7g7", "revision": 0}).json()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            finished = list(pool.map(complete, completed))
+        assert all(item["result"] == "1-0" for item in finished)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            statuses = [request(client, "GET", f"/api/games/{item['id']}/learning").json() for item in completed]
+            if all(item["status"] == "completed" for item in statuses): break
+            time.sleep(.1)
+        assert all(item["status"] == "completed" for item in statuses), statuses
+        assert all(item["evidence"]["independent_assessed"] == 0 for item in statuses)
+        assert all(item["evidence"]["observations"][0]["assistance"] == "destination_revealed" for item in statuses)
+        day = statuses[0]["completed_at"][:10]
+        diary = request(client, "GET", f"/api/diary/days/{day}").json()
+        assert diary["statistics"]["games"] == 2 and diary["statistics"]["assisted"] == 2
+        assert diary["statistics"]["independent"] == 0
+        regenerated = request(client, "POST", f"/api/diary/days/{day}/regenerate", json={}).json()
+        assert regenerated["version"] == diary["version"]
+        with SessionLocal() as db:
+            assert db.scalar(select(func.count(DailyDiary.id)).where(DailyDiary.user_id == profile["id"])) == 1
+        report = request(client, "POST", "/api/diary/reports", 201,
+                         json={"start_date": day, "end_date": day}).json()
+        assert report["statistics"]["games"] == 2 and not report["outdated"]
+        assert request(client, "GET", f"/api/diary/reports/{report['id']}").json()["statistics"] == report["statistics"]
+        activity = request(client, "GET", f"/api/diary/calendar?month={day[:7]}").json()
+        assert activity["days"][0]["game_count"] == 2
+        imported = request(client, "POST", "/api/games", 201,
+                           json={"mode": "analysis", "pgn": '[Result "1-0"]\n\n1. e4 e5 1-0'}).json()
+        assert imported["result"] == "1-0" and imported["completion_reason"] == "imported_result"
+        assert "[Result \"1-0\"]" in request(client, "GET", f"/api/games/{imported['id']}/pgn").text
+        resigning = request(client, "POST", "/api/games", 201, json={"mode": "computer"}).json()
+        played = request(client, "POST", f"/api/games/{resigning['id']}/moves", json={"move": "e4", "revision": 0}).json()
+        resigned = request(client, "POST", f"/api/games/{resigning['id']}/resign", json={"revision": played["revision"]}).json()
+        assert resigned["result"] == "0-1" and resigned["status"] == "resignation"
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            more = [request(client, "GET", f"/api/games/{item['id']}/learning").json() for item in (imported, resigned)]
+            if all(item["status"] == "completed" for item in more): break
+            time.sleep(.1)
+        assert all(item["status"] == "completed" for item in more), more
+        assert more[0]["evidence"]["counts"].get("unknown") == 1
+        assert request(client, "GET", f"/api/diary/reports/{report['id']}").json()["outdated"]
         del client.headers["X-Profile-ID"]
         request(client, "GET", url, 400)
 
@@ -127,11 +189,15 @@ def api_checks() -> None:
                         json={"name": "postgres-other-profile"}).json()
         resumed.headers["X-Profile-ID"] = other["id"]
         request(resumed, "GET", url, 404)
+        request(resumed, "GET", f"/api/diary/reports/{report['id']}", 404)
+        assert request(resumed, "GET", "/api/diary/reports").json() == []
+        assert request(resumed, "GET", f"/api/diary/calendar?month={day[:7]}").json()["days"] == []
         assert request(resumed, "GET", "/api/repertoire").json() == []
         assert request(resumed, "GET", "/api/progress").json()["attempts"] == 0
     engine.dispose()
     print("PostgreSQL API checks passed: profiles/isolation, saved legal gameplay, stale/CAS updates, real Stockfish, "
-          "exploration, computer/undo, hints/attempts/progress, training, both repertoires, durable coaching/resume.")
+          "exploration, computer/undo, hints/attempts/progress, realistic training, both repertoires, durable coaching/resume, "
+          "concurrent adaptive completion/assistance/automatic analysis/diary/idempotency/reports/isolation.")
 
 
 def main() -> None:
@@ -164,7 +230,27 @@ def main() -> None:
                             f"?host={quote(str(socket), safe='')}&port={args.port}")
             os.environ.update(DATABASE_URL=database_url, LLM_BASE_URL="", LLM_MODEL="", LLM_API_KEY="", COOKIE_SECURE="false")
             alembic = [sys.executable, "-m", "alembic", "-c", "src/backend/alembic.ini"]
-            for operation in (("upgrade", "head"), ("check",), ("downgrade", "base"), ("upgrade", "head"), ("check",)):
+            # Start from the previous shipped schema with actual legacy records.
+            run([*alembic, "upgrade", "91b4e2a6c730"], env=os.environ.copy())
+            from datetime import datetime, timezone
+            import sqlalchemy as sa
+            legacy_engine = sa.create_engine(database_url)
+            metadata = sa.MetaData()
+            metadata.reflect(bind=legacy_engine, only=["users", "games"])
+            with legacy_engine.begin() as connection:
+                connection.execute(metadata.tables["users"].insert().values(id="legacy-migration-user", name="migration-preservation", password_hash="", preferences={"difficulty": 4}, created_at=datetime.now(timezone.utc)))
+                connection.execute(metadata.tables["games"].insert().values(id="legacy-migration-game", user_id="legacy-migration-user", initial_fen="8/8/8/8/8/8/5K2/7k w - - 0 1", moves=[], mode="training", player_color="white", difficulty=4, revision=0, created_at=datetime.now(timezone.utc)))
+            run([*alembic, "upgrade", "head"], env=os.environ.copy())
+            metadata = sa.MetaData()
+            metadata.reflect(bind=legacy_engine, only=["users", "games"])
+            with legacy_engine.begin() as connection:
+                row = connection.execute(sa.select(metadata.tables["games"]).where(metadata.tables["games"].c.id == "legacy-migration-game")).mappings().one()
+                assert row["moves"] == [] and row["difficulty"] == 4 and row["revision"] == 0
+                assert row["assistance_tracked"] is False and row["difficulty_mode"] == "manual" and row["completed_at"] is None
+                connection.execute(metadata.tables["users"].delete().where(metadata.tables["users"].c.id == "legacy-migration-user"))
+            legacy_engine.dispose()
+            print("PostgreSQL incremental migration preserved legacy games and unknown assistance.")
+            for operation in (("check",), ("downgrade", "base"), ("upgrade", "head"), ("check",)):
                 run([*alembic, *operation], env=os.environ.copy())
             print("PostgreSQL migrations passed: upgrade/check/downgrade-base/upgrade/check, with no schema drift.")
             api_checks()

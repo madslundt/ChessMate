@@ -12,6 +12,15 @@ class GameCreate(Input):
     mode: Literal["computer", "training", "analysis"] = "training"
     player_color: Literal["white", "black"] = "white"
     difficulty: int = Field(default=2, ge=1, le=5)
+    difficulty_mode: Literal["adaptive", "manual"] = "adaptive"
+
+    @model_validator(mode="before")
+    @classmethod
+    def preserve_explicit_difficulty(cls, value):
+        if isinstance(value, dict) and "difficulty" in value and "difficulty_mode" not in value:
+            return {**value, "difficulty_mode": "manual"}
+        return value
+
     fen: str | None = Field(default=None, max_length=120)
     pgn: str | None = Field(default=None, max_length=100000)
 
@@ -39,6 +48,7 @@ class GameAnalysisJobRequest(Revision):
 
 
 class PositionRequest(Input):
+    game_id: str | None = Field(default=None, max_length=36)
     fen: str = Field(default=chess.STARTING_FEN, max_length=120)
     moves: list[str] = Field(default_factory=list, max_length=200)
     time_ms: int = Field(default=250, ge=50, le=20000)
@@ -80,6 +90,19 @@ class Preferences(Input):
     theme: Literal["dark", "light", "system"] = "light"
     player_color: Literal["white", "black"] = "white"
     difficulty: int = Field(default=2, ge=1, le=5)
+    difficulty_mode: Literal["adaptive", "manual"] = "adaptive"
+    automatic_analysis: bool = True
+    automatic_diary: bool = True
+    timezone: str = "UTC"
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value):
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        try: ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError): raise ValueError("Choose a valid IANA timezone") from None
+        return value
+
     orientation: Literal["white", "black", "player"] = "player"
     board_theme: Literal["sage", "wood", "blue"] = "sage"
     piece_style: Literal["classic", "modern"] = "classic"

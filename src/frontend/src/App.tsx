@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   BookOpen,
+  CalendarDays,
   ChartNoAxesColumnIncreasing,
   ChevronRight,
   Clock3,
@@ -28,6 +29,7 @@ import { Learn } from './Learn';
 import { History, ProgressPage, SettingsPage } from './Pages';
 import { gamePath, Link, navigate, useRoute } from './navigation';
 
+const Diary = lazy(() => import('./Diary').then((module) => ({ default: module.Diary })));
 const PROFILE_KEY = 'chessmate.profile';
 
 export function App() {
@@ -50,7 +52,9 @@ export function App() {
   });
   const user = profiles.data?.find((profile) => profile.id === profileId) ?? null;
   useEffect(() => {
-    const expired = () => { void queryClient.invalidateQueries({ queryKey: ['profiles'] }); };
+    const expired = () => {
+      void queryClient.invalidateQueries({ queryKey: ['profiles'] });
+    };
     window.addEventListener('chessmate-auth-required', expired);
     return () => window.removeEventListener('chessmate-auth-required', expired);
   }, [queryClient]);
@@ -98,13 +102,18 @@ export function App() {
     setShowProfiles(false);
   }
   async function openProfiles() {
-    if (!user?.authenticated) { setShowProfiles(true); return; }
+    if (!user?.authenticated) {
+      setShowProfiles(true);
+      return;
+    }
     try {
       await api('/profiles/session', undefined, 'DELETE');
       localStorage.removeItem(PROFILE_KEY);
       setProfileId(null);
       queryClient.clear();
-    } catch (failure) { setThemeError(failure); }
+    } catch (failure) {
+      setThemeError(failure);
+    }
   }
   async function toggleTheme() {
     const previous = preferences;
@@ -134,6 +143,7 @@ export function App() {
     ['analyze', ChartNoAxesColumnIncreasing],
     ['history', Clock3],
     ['progress', Trophy],
+    ['diary', CalendarDays],
     ['settings', Settings],
   ] as const;
   if (profiles.isPending)
@@ -144,12 +154,18 @@ export function App() {
       </div>
     );
   if (profiles.error instanceof ApiError && profiles.error.code === 'authentication_required')
-    return <LocaleContext.Provider value={preferences.language}><SecureProfileAccess onAuthenticated={(profile) => {
-      localStorage.setItem(PROFILE_KEY, profile.id);
-      setProfileId(profile.id);
-      queryClient.clear();
-      void profiles.refetch();
-    }} /></LocaleContext.Provider>;
+    return (
+      <LocaleContext.Provider value={preferences.language}>
+        <SecureProfileAccess
+          onAuthenticated={(profile) => {
+            localStorage.setItem(PROFILE_KEY, profile.id);
+            setProfileId(profile.id);
+            queryClient.clear();
+            void profiles.refetch();
+          }}
+        />
+      </LocaleContext.Provider>
+    );
   if (profiles.error)
     return (
       <div className="app-loading">
@@ -189,7 +205,13 @@ export function App() {
               </div>
               <button className="text-button profile-switch" onClick={() => void openProfiles()}>
                 <UserRound size={15} />
-                {user.authenticated ? (preferences.language === 'da' ? 'Log ud' : 'Sign out') : preferences.language === 'da' ? 'Skift profil' : 'Switch profile'}
+                {user.authenticated
+                  ? preferences.language === 'da'
+                    ? 'Log ud'
+                    : 'Sign out'
+                  : preferences.language === 'da'
+                    ? 'Skift profil'
+                    : 'Switch profile'}
               </button>
             </div>
           </aside>
@@ -198,7 +220,15 @@ export function App() {
               <button
                 className="profile-toolbar"
                 onClick={() => void openProfiles()}
-                aria-label={user.authenticated ? (preferences.language === 'da' ? 'Log ud' : 'Sign out') : preferences.language === 'da' ? 'Skift profil' : 'Switch profile'}
+                aria-label={
+                  user.authenticated
+                    ? preferences.language === 'da'
+                      ? 'Log ud'
+                      : 'Sign out'
+                    : preferences.language === 'da'
+                      ? 'Skift profil'
+                      : 'Switch profile'
+                }
               >
                 <UserRound size={15} />
                 <span>{user.name}</span>
@@ -215,6 +245,7 @@ export function App() {
               <GameWorkspace
                 key={`${page}-${user.id}`}
                 activeGameId={activeGame}
+                initialPly={route.ply}
                 preferences={preferences}
                 selectGame={selectGame}
                 analysisMode={page === 'analyze'}
@@ -225,22 +256,25 @@ export function App() {
             )}
             {route.found && page === 'learn' && <Learn preferences={preferences} route={route} />}
             {route.found && page === 'history' && <History onResume={selectGame} preferences={preferences} />}
-            {route.found && page === 'progress' && <ProgressPage onLearn={() => navigate('/learn')} preferences={preferences} />}
+            {route.found && page === 'progress' && (
+              <ProgressPage onLearn={() => navigate('/learn')} preferences={preferences} />
+            )}
+            {route.found && page === 'diary' && <Suspense fallback={<Spinner />}><Diary preferences={preferences} /></Suspense>}
             {route.found && page === 'settings' && (
               <>
-              {user.authenticated && <AccountSecurity language={preferences.language} />}
-              <SettingsPage
-                preferences={preferences}
-                onSaved={(p) => {
-                  setPreferences(p);
-                  ['game', 'progress', 'exercises'].forEach((key) => {
-                    void queryClient.invalidateQueries({ queryKey: [key] });
-                  });
-                  queryClient.setQueryData<User[]>(['profiles'], (items) =>
-                    items?.map((u) => (u.id === user.id ? { ...u, preferences: p } : u)),
-                  );
-                }}
-              />
+                {user.authenticated && <AccountSecurity language={preferences.language} />}
+                <SettingsPage
+                  preferences={preferences}
+                  onSaved={(p) => {
+                    setPreferences(p);
+                    ['game', 'progress', 'exercises'].forEach((key) => {
+                      void queryClient.invalidateQueries({ queryKey: [key] });
+                    });
+                    queryClient.setQueryData<User[]>(['profiles'], (items) =>
+                      items?.map((u) => (u.id === user.id ? { ...u, preferences: p } : u)),
+                    );
+                  }}
+                />
               </>
             )}
           </main>

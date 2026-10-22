@@ -2,6 +2,12 @@
 
 This guide covers running and operating Chessmate. For a product overview, start at the repository [README](../README.md). For component boundaries and data flow, see [ARCHITECTURE.md](ARCHITECTURE.md); implementation status, verification, and known limitations are in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
+## Personalized play and daily reflection
+
+New games use adaptive opponent difficulty by default, with manual levels still available. Completed games, resignations and completed PGN imports feed automatic analysis, assistance-aware learning and one daily diary entry per active local date. Open **Diary** to browse the calendar and request a saved date-range report; longer reports are generated only when requested. **Learn → Play from a real position** continues authentic positions as normal games.
+
+See [the personalized coaching guide](ADAPTIVE_COACHING.md) for the full workflow, timezone/automation settings, historical backfill, migrations, measured verification and limitations.
+
 ## Repository setup
 
 The GitHub repository is [madslundt/ChessMate](https://github.com/madslundt/ChessMate). Use `main` as the initial branch and `https://github.com/madslundt/ChessMate.git` as the `origin` fetch and push URL.

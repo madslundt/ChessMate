@@ -1,5 +1,6 @@
 """Owned, bounded deep searches with real UCI stop cancellation."""
 import copy
+import logging
 import threading
 import time
 from collections import OrderedDict
@@ -14,9 +15,11 @@ from .chess_tools import parse_board
 from .coaching_strategy import candidate_strategy, strategic_insights
 from .engine import AnalysisCancelled, EngineUnavailable, engine_service
 from .models import User
+from .database import get_db
 from .schemas import PositionRequest, Preferences
 
 router = APIRouter(prefix="/analysis/jobs", tags=["Analysis"])
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -77,6 +80,7 @@ class AnalysisJobs:
             except AnalysisCancelled:
                 with self._lock: job.status = "cancelled"
             except Exception as exc:
+                if not job.cancel.is_set(): log.exception("Background analysis job %s failed", job.id)
                 with self._lock:
                     if job.cancel.is_set(): job.status = "cancelled"
                     else:
@@ -117,6 +121,7 @@ class AnalysisJobs:
             except AnalysisCancelled:
                 with self._lock: job.status = "cancelled"
             except Exception:
+                if not job.cancel.is_set(): log.exception("Deep position analysis job %s failed", job.id)
                 with self._lock:
                     if job.cancel.is_set(): job.status = "cancelled"
                     else: job.status, job.error = "failed", "Deep analysis could not complete; retry shortly"
@@ -160,14 +165,42 @@ analysis_jobs = AnalysisJobs()
 
 
 @router.post("", status_code=202)
-def start_job(data: PositionRequest, user: User = Depends(current_user)) -> dict:
+def start_job(data: PositionRequest, user: User = Depends(current_user), db=Depends(get_db)) -> dict:
+    if data.game_id:
+        from .games import owned_game
+        owned_game(db, data.game_id, user)
     job = analysis_jobs.submit(user.id, data, Preferences.model_validate(user.preferences or {}).model_dump())
-    return analysis_jobs.snapshot(user.id, job.id)
+    if data.game_id: analysis_jobs.set_progress(job, game_id=data.game_id)
+    result = analysis_jobs.snapshot(user.id, job.id)
+    record_job_disclosure(db, user, result)
+    return result
 
 
 @router.get("/{job_id}")
-def job_status(job_id: str, user: User = Depends(current_user)) -> dict:
-    return analysis_jobs.snapshot(user.id, job_id)
+def job_status(job_id: str, user: User = Depends(current_user), db=Depends(get_db)) -> dict:
+    result = analysis_jobs.snapshot(user.id, job_id)
+    record_job_disclosure(db, user, result)
+    return result
+
+
+def record_job_disclosure(db, user, result):
+    """Record only results that are actually returned, including immediately cached jobs."""
+    game_id = result.get("progress", {}).get("game_id")
+    if game_id and result["status"] == "completed" and result.get("result", {}).get("candidates"):
+        import hashlib
+        from sqlalchemy.exc import IntegrityError
+        from .assistance import record_assistance
+        from .learning_models import LearningEvent
+        source = "deep_analysis:" + result["id"]
+        identifier = hashlib.sha256((user.id + "|" + source).encode()).hexdigest()[:36]
+        if db.get(LearningEvent, identifier) is None:
+            event = record_assistance(db, user, game_id, result["fen"], "engine_assisted", source,
+                result["result"]["candidates"][0].get("uci"), revealed={"job_id": result["id"]})
+            if event:
+                event.id = identifier
+                try: db.commit()
+                except IntegrityError: db.rollback()  # Concurrent polling records the same disclosure once.
+
 
 
 @router.delete("/{job_id}")
