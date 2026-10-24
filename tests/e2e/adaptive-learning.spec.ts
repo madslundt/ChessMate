@@ -58,6 +58,7 @@ test('independent play suppresses enabled evaluations and records an unaided dec
   await expect(page.getByLabel('Play mode', { exact: true })).toHaveValue('independent');
   await expect(page.locator('.evaluation-bar')).toHaveCount(0);
   await expect(page.locator('.position-evaluation')).toHaveCount(0);
+  await expect(page.locator('.last-move-feedback')).toHaveCount(0, { timeout: 1000 });
   for (const square of ['f7', 'g7']) {
     const button = page.getByTestId('chessboard').locator(`[data-square="${square}"]`);
     if (info.project.name === 'desktop') await button.click();

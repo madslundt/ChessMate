@@ -14,6 +14,7 @@ export function useBoardVisuals({ fen, preferences, highlightedMove, exploring, 
 }) {
   const [selection, setSelection] = useState<{ insight: VisualInsight; origin: string } | null>(null);
   const [previews, setPreviews] = useState<{ insight: VisualInsight; origin: string; owner: string }[]>([]);
+  const clearVisual = useCallback(() => { setSelection(null); setPreviews([]); }, []);
   useEffect(() => setPreviews([]), [fen]);
   const previewVisual = useCallback((insight: VisualInsight | null, owner: string) => {
     if (insight) {
@@ -39,7 +40,7 @@ export function useBoardVisuals({ fen, preferences, highlightedMove, exploring, 
     feedbackFen: feedback ? visual?.fen : undefined,
     targets: !feedback && preferences.highlight_pieces === false && visible?.id !== 'hint-guide' ? [] : visible?.squares,
     previewVisual,
-    clearVisual: () => { setSelection(null); setPreviews([]); },
+    clearVisual,
     showVisual: (insight: VisualInsight) => {
       setPreviews([]);
       if (insight.id.startsWith('feedback-')) {

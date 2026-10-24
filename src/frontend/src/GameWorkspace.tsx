@@ -44,6 +44,7 @@ export function GameWorkspace(props: WorkspaceProps) {
     setPlaying,
     speed,
     setSpeed,
+    playMode,
     retryPosition,
     error,
     setError,
@@ -87,6 +88,13 @@ export function GameWorkspace(props: WorkspaceProps) {
     lastMove,
     retryPosition,
   });
+  useEffect(() => {
+    if (!analysisMode && playMode === 'independent') {
+      clearVisual();
+      setHoveredMove(null);
+      setPinnedMove(null);
+    }
+  }, [analysisMode, playMode, clearVisual]);
   function highlightVisual(insight: VisualInsight) {
     setHoveredMove(null);
     setPinnedMove(null);
@@ -268,7 +276,7 @@ export function GameWorkspace(props: WorkspaceProps) {
               }
             />
           </div>
-          {!analysisMode && game && (
+          {!analysisMode && playMode !== 'independent' && game && (
             <LastMoveFeedback game={game} ply={at} onVisual={highlightVisual} activeVisual={activeVisual} />
           )}
           {activeVisual && (
