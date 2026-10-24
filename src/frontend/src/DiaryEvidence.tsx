@@ -34,6 +34,7 @@ export interface DiaryContent {
   status: string;
   summary: string;
   statistics: DiaryStatistics;
+  assistance_breakdown?: Record<string, number>;
   source_statistics?: Partial<Record<'game' | 'training' | 'import', DiaryStatistics>>;
   observations: DiaryObservation[];
   recommendations: { topic: string; label?: string; reason?: string }[];
@@ -90,6 +91,12 @@ export function DiaryEvidence({ content, preferences }: { content: DiaryContent;
             {t('independentDecisions')}: {s.independent} · {t('assistedDecisions')}: {s.assisted} ·{' '}
             {t('unknownAssistance')}: {s.unknown}
           </p>
+          {!!content.assistance_breakdown?.engine_assisted && (
+            <p className="muted diary-assistance-detail">
+              {t('engineAnalysisDecisions')}: {content.assistance_breakdown.engine_assisted}.{' '}
+              {t('assistanceIncludesEvaluation')}
+            </p>
+          )}
         </>
       )}
       {content.source_statistics && (

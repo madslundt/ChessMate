@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Chess } from 'chess.js';
-import { recordAssistance } from './assistance';
+import { recordAssistance, workspacePreferences } from './assistance';
 import { api, ApiError } from './api';
 import { legalVariation, replayVariation, variationCursor, type Exploration } from './exploration';
 import { useT } from './i18n';
@@ -14,7 +14,7 @@ export interface WorkspaceProps {
   analysisMode: boolean;
   initialPly?: number | null;
 }
-export function useGameWorkspace({ activeGameId, preferences, selectGame, analysisMode, initialPly }: WorkspaceProps) {
+export function useGameWorkspace({ activeGameId, preferences: savedPreferences, selectGame, analysisMode, initialPly }: WorkspaceProps) {
   const t = useT(),
     client = useQueryClient(),
     [setup, setSetup] = useState(false),
@@ -23,9 +23,9 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     [flipped, setFlipped] = useState(false),
     [explore, setExplore] = useState<Exploration | null>(null),
     [playing, setPlaying] = useState(false),
-    [speed, setSpeed] = useState(preferences.variation_speed_ms || 900),
+    [speed, setSpeed] = useState(savedPreferences.variation_speed_ms || 900),
     [playMode, setPlayMode] = useState(
-      preferences.play_mode || (preferences.auto_computer ? 'automatic' : 'coach_first'),
+      savedPreferences.play_mode || (savedPreferences.auto_computer ? 'automatic' : 'coach_first'),
     ),
     [error, setError] = useState<unknown>(null),
     [busy, setBusy] = useState(false),
@@ -37,6 +37,7 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
     } | null>(null),
     [analysis, setAnalysis] = useState<Analysis | null>(null),
     [notice, setNotice] = useState('');
+  const preferences = useMemo(() => workspacePreferences(savedPreferences, playMode, analysisMode), [savedPreferences, playMode, analysisMode]);
   const lock = useRef(false);
   const creatingGame = useRef<Promise<Game> | null>(null);
   const computerAttempt = useRef<string | null>(null);
@@ -70,7 +71,7 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
       preferences.analysis_time_ms,
       preferences.analysis_depth,
     ],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const disclosing = !!(preferences.show_evaluation || preferences.show_evaluation_bar || explore);
       const context = disclosing && !analysisMode ? await ensureGame() : game;
       return api<Analysis>('/analysis', {
@@ -79,7 +80,7 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
         depth: preferences.analysis_depth,
         candidates: 3,
         ...(disclosing && context && !analysisMode ? { game_id: context.id } : {}),
-      });
+      }, undefined, signal);
     },
     enabled:
       (!activeGameId || !!game) &&
@@ -106,8 +107,8 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
   const whiteCp = displayedAnalysis?.candidates[0]?.white_cp;
   const rootCp = rootAnalysis.data?.candidates[0]?.white_cp;
   useEffect(() => {
-    setPlayMode(preferences.play_mode || (preferences.auto_computer ? 'automatic' : 'coach_first'));
-  }, [preferences.play_mode, preferences.auto_computer]);
+    setPlayMode(savedPreferences.play_mode || (savedPreferences.auto_computer ? 'automatic' : 'coach_first'));
+  }, [savedPreferences.play_mode, savedPreferences.auto_computer]);
   useEffect(() => {
     if (!explore || !playing) return;
     const cursor = variationCursor(explore);
@@ -400,6 +401,7 @@ export function useGameWorkspace({ activeGameId, preferences, selectGame, analys
                   : t('computerTurn');
   return {
     t,
+    preferences,
     client,
     setup,
     setSetup,

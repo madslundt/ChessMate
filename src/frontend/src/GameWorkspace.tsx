@@ -28,10 +28,11 @@ import { PostGameSummary } from './GameReview';
 import type { Exercise, Game, VisualInsight } from './types';
 import { analysisPath, learnPath, navigate, Link } from './navigation';
 export function GameWorkspace(props: WorkspaceProps) {
-  const { preferences, analysisMode, selectGame } = props;
+  const { analysisMode, selectGame } = props;
   const workspace = useGameWorkspace(props);
   const {
     t,
+    preferences,
     setup,
     setSetup,
     importing,
@@ -43,7 +44,6 @@ export function GameWorkspace(props: WorkspaceProps) {
     setPlaying,
     speed,
     setSpeed,
-    playMode,
     retryPosition,
     error,
     setError,
@@ -316,15 +316,7 @@ export function GameWorkspace(props: WorkspaceProps) {
           onExplore={enterExplore}
           fen={fen}
           game={game}
-          preferences={
-            playMode === 'independent'
-              ? {
-                  ...preferences,
-                  coaching_mode: 'independent',
-                  feedback: 'none',
-                }
-              : preferences
-          }
+          preferences={preferences}
           onVisual={highlightVisual}
           activeVisual={activeVisual}
           onRetry={async (base, rootPly) => {

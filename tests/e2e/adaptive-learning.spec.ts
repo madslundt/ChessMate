@@ -42,6 +42,66 @@ test('new games default to adaptive and preserve a manual override', async ({ pa
   expect(games[0].difficulty).toBe(4);
 });
 
+test('independent play suppresses enabled evaluations and records an unaided decision', async ({ page }, info) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  const headers = await profile(page, {
+    coaching_mode: 'guided', play_mode: 'independent', show_evaluation: true, show_evaluation_bar: true,
+  });
+  const game = await (await page.request.post('/api/games', { headers, data: { mode: 'computer', fen: mate } })).json();
+  const analysisRequests: string[] = [];
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/analysis') analysisRequests.push(request.url());
+  });
+  await page.goto(`/play/${game.id}`);
+  await expect(page).toHaveTitle(/Chessmate/);
+  await expect(page.getByLabel('Play mode', { exact: true })).toHaveValue('independent');
+  await expect(page.locator('.evaluation-bar')).toHaveCount(0);
+  await expect(page.locator('.position-evaluation')).toHaveCount(0);
+  for (const square of ['f7', 'g7']) {
+    const button = page.getByTestId('chessboard').locator(`[data-square="${square}"]`);
+    if (info.project.name === 'desktop') await button.click();
+    else await button.tap();
+  }
+  await expect.poll(async () => (await (await page.request.get(`/api/games/${game.id}/learning`, { headers })).json()).status).toBe('completed');
+  const state = await (await page.request.get(`/api/games/${game.id}/learning`, { headers })).json();
+  expect(state.evidence.independent_assessed).toBe(1);
+  expect(analysisRequests).toEqual([]);
+  expect(errors).toEqual([]);
+  await page.screenshot({ path: `/tmp/chessmate-independent-evaluation-${info.project.name}.png`, fullPage: true });
+});
+
+test('automatic evaluation is explained in the Danish diary without a hint request', async ({ page }, info) => {
+  const headers = await profile(page, {
+    language: 'da', coach_language: 'da', show_evaluation: true, show_evaluation_bar: true,
+  });
+  const game = await (await page.request.post('/api/games', { headers, data: { mode: 'computer', fen: mate } })).json();
+  const hintRequests: string[] = [];
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/hint') hintRequests.push(request.url());
+  });
+  const evaluated = page.waitForResponse(response => new URL(response.url()).pathname === '/api/analysis'
+    && response.request().postDataJSON()?.game_id === game.id && response.status() === 200);
+  await page.goto(`/play/${game.id}`);
+  await evaluated;
+  await expect(page.locator('.position-evaluation')).toBeVisible();
+  for (const square of ['f7', 'g7']) {
+    const button = page.getByTestId('chessboard').locator(`[data-square="${square}"]`);
+    if (info.project.name === 'desktop') await button.click();
+    else await button.tap();
+  }
+  await expect.poll(async () => (await (await page.request.get(`/api/games/${game.id}/learning`, { headers })).json()).status).toBe('completed');
+  const learning = await (await page.request.get(`/api/games/${game.id}/learning`, { headers })).json();
+  await page.goto('/diary');
+  const day = learning.completed_at.slice(0, 10);
+  await page.getByLabel('Måned', { exact: true }).fill(day.slice(0, 7));
+  await page.getByRole('button', { name: `${day}: 1 partier`, exact: true }).click();
+  await expect(page.locator('.diary-detail')).toContainText('Beslutninger med motoranalyse: 1');
+  await expect(page.locator('.diary-detail')).toContainText('selv uden hints');
+  expect(hintRequests).toEqual([]);
+  await page.screenshot({ path: `/tmp/chessmate-diary-evaluation-${info.project.name}.png`, fullPage: true });
+});
+
 test('finished game automatically appears in diary, calendar and saved range report', async ({ page }, info) => {
   const failures: string[] = [];
   page.on('pageerror', error => failures.push(error.message));

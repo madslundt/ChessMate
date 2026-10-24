@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
-import { recordAssistance } from './assistance';
-import type { Game } from './types';
+import { recordAssistance, workspacePreferences } from './assistance';
+import { defaults, type Game } from './types';
 vi.mock('./api', () => ({ api: vi.fn() }));
 const game: Game = {
   id: 'game-1',
@@ -17,6 +17,16 @@ const game: Game = {
 };
 describe('visual assistance disclosure', () => {
   beforeEach(() => vi.mocked(api).mockReset());
+  it('temporarily hides automatic help in independent play without changing saved settings or analysis', () => {
+    const saved = { ...defaults, show_evaluation: true, show_evaluation_bar: true, show_alternatives: true };
+    const independent = workspacePreferences(saved, 'independent', false);
+    expect(independent.show_evaluation || independent.show_evaluation_bar || independent.show_alternatives).toBe(false);
+    expect(independent.coaching_mode).toBe('independent');
+    expect(independent.feedback).toBe('none');
+    expect(workspacePreferences(saved, 'automatic', false)).toBe(saved);
+    expect(workspacePreferences(saved, 'independent', true)).toBe(saved);
+    expect(saved.show_evaluation && saved.show_evaluation_bar && saved.show_alternatives).toBe(true);
+  });
   it('persists exact exposure with position and timeline revision', async () => {
     await recordAssistance(game, 'full_solution', 'variation_preview', 'e2e4');
     expect(api).toHaveBeenCalledWith(

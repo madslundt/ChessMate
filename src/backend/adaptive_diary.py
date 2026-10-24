@@ -65,6 +65,16 @@ def empty_statistics():
     return {key: 0 for key in ("games", "wins", "draws", "losses", "independent", "assisted", "unknown", "independent_sound", "assisted_sound", "analyzed_games", "forced")}
 
 
+def assistance_breakdown(observations):
+    counts = Counter()
+    for item in observations:
+        category = item.get("assistance", "unknown")
+        if isinstance(category, dict): category = category.get("category", "unknown")
+        if not item.get("forced") and category not in ("independent", "unknown"):
+            counts[category] += 1
+    return dict(counts)
+
+
 def daily_evidence(db, user, day):
     start, end = date_bounds(day, user_zone(user))
     games = db.scalars(select(Game).where(Game.user_id == user.id, Game.completed_at >= start,
@@ -137,6 +147,7 @@ def daily_evidence(db, user, day):
             "concepts": profile.data.get("concepts", []),
             "recommendations": profile.data.get("recommendations", [])}
     return {"statistics": statistics, "games": summaries, "observations": observations,
+        "assistance_breakdown": assistance_breakdown(observations),
         "profile_snapshot": snapshot, "source_statistics": source_statistics,
         "recommendations": recommendations, "status": status,
         "analysis_versions": {key: {"version": getattr(value, "version", None), "evidence": digest(value.evidence or {}), "status": value.status} for key, value in analyses.items()}}
@@ -156,7 +167,7 @@ def narrative(evidence, da=False):
     s = evidence["statistics"]
     if da:
         paragraphs = [f"Du afsluttede {s['games']} {'parti' if s['games'] == 1 else 'partier'}: {s['wins']} vundne, {s['draws']} remis og {s['losses']} tabte."]
-        paragraphs.append(f"{s['independent']} vurderede beslutninger var selvstændige, {s['assisted']} fik hjælp, og {s['unknown']} har ukendt hjælpestatus.")
+        paragraphs.append(f"{s['independent']} vurderede beslutninger var selvstændige, {s['assisted']} blev registreret med hjælp, og {s['unknown']} har ukendt hjælpestatus.")
         if s["independent"]: paragraphs.append(f"{s['independent_sound']} af de selvstændige beslutninger var rimelige ifølge den gemte motorvurdering.")
         if evidence["status"] != "completed": paragraphs.append("Analysen er ufuldstændig. Konklusioner bygger kun på færdiganalyserede partier.")
         if evidence["recommendations"]: paragraphs.append("Næste fokus: " + ", ".join(item["label"] for item in evidence["recommendations"]) + ". Åbn de markerede stillinger, og undersøg modstanderens svar før dit næste træk.")
@@ -164,11 +175,15 @@ def narrative(evidence, da=False):
     else:
         plural = lambda count, singular, many: singular if count == 1 else many
         paragraphs = [f"You completed {s['games']} {plural(s['games'], 'game', 'games')}: {s['wins']} {plural(s['wins'], 'win', 'wins')}, {s['draws']} {plural(s['draws'], 'draw', 'draws')} and {s['losses']} {plural(s['losses'], 'loss', 'losses')}."]
-        paragraphs.append(f"{s['independent']} assessed decisions were independent, {s['assisted']} received assistance and {s['unknown']} have unknown assistance history.")
+        paragraphs.append(f"{s['independent']} assessed decisions were independent, {s['assisted']} had recorded assistance and {s['unknown']} have unknown assistance history.")
         if s["independent"]: paragraphs.append(f"{s['independent_sound']} of your independent decisions were reasonable according to the stored engine assessment.")
         if evidence["status"] != "completed": paragraphs.append("Analysis is incomplete. Observations use only games whose analysis has finished.")
         if evidence["recommendations"]: paragraphs.append("Next focus: " + ", ".join(item["label"] for item in evidence["recommendations"]) + ". Open the highlighted positions and examine the opponent's replies before choosing your next move.")
         paragraphs.append("Today's observations alone do not establish a lasting strength or weakness. Compare independent decisions across several games.")
+    engine_count = evidence.get("assistance_breakdown", {}).get("engine_assisted", 0)
+    if engine_count:
+        paragraphs.insert(2, (f"Motoranalyse: {engine_count} beslutninger. Motorvurderinger og evalueringsbjælken tæller også som hjælp, selv uden hints." if da else
+            f"Engine analysis: {engine_count} decisions. Live evaluations and the evaluation bar also count as assistance, even without hints."))
     snapshot = evidence.get("profile_snapshot") or {}
     meaningful = [item for item in snapshot.get("concepts", []) if item.get("status") in
         ("recurring_weakness", "improving", "declining", "consistently_demonstrated_strength")]
@@ -293,6 +308,7 @@ def aggregate_days(rows):
     concepts = (snapshot or {}).get("concepts", [])
     return {"statistics": statistics, "observations": list(observations.values()), "recommendations": list(recommendations.values())[:2],
         "profile_snapshot": snapshot, "source_statistics": source_statistics,
+        "assistance_breakdown": assistance_breakdown(observations.values()),
         "strengths": [item for item in concepts if item.get("status") == "consistently_demonstrated_strength"],
         "weaknesses": [item for item in concepts if item.get("status") in ("recurring_weakness", "emerging_weakness")],
         "improvements": [item for item in concepts if item.get("status") == "improving"],

@@ -21,6 +21,29 @@ def session():
     return contextmanager(main.app.dependency_overrides[get_db])()
 
 
+@pytest.mark.parametrize("language", ["da", "en"])
+def test_two_games_with_automatic_evaluation_explain_assistance_without_implying_hints(signed, language):
+    owner = signed.headers["X-Profile-ID"]
+    signed.patch("/api/settings", json={"coach_language": language})
+    with session() as db:
+        for hour, decisions in ((10, 36), (11, 31)):
+            game = seed_finished(db, owner, datetime(2026, 10, 24, hour, tzinfo=timezone.utc), "engine_assisted")
+            row = db.get(GameLearningAnalysis, game.id)
+            observation = row.evidence["observations"][0]
+            row.evidence = {"observations": [{**observation, "ply": ply + 1} for ply in range(decisions)]}
+        db.commit()
+    daily = signed.get("/api/diary/days/2026-10-24").json()
+    assert daily["statistics"]["games"] == 2
+    assert daily["statistics"]["assisted"] == 67
+    assert daily["statistics"]["independent"] == 0
+    assert daily["assistance_breakdown"] == {"engine_assisted": 67}
+    assert ("Motoranalyse: 67" if language == "da" else "Engine analysis: 67") in daily["summary"]
+    assert ("selv uden hints" if language == "da" else "even without hints") in daily["summary"]
+    report = signed.post("/api/diary/reports", json={"start_date": "2026-10-24", "end_date": "2026-10-24"}).json()
+    assert report["assistance_breakdown"] == daily["assistance_breakdown"]
+    assert ("Motoranalyse: 67" if language == "da" else "Engine analysis: 67") in report["summary"]
+
+
 def test_timezone_change_discards_profile_snapshot_from_after_local_day(signed):
     owner = signed.headers["X-Profile-ID"]
     with session() as db:

@@ -1,5 +1,22 @@
 import { api } from './api';
-import type { Game } from './types';
+import type { Game, Preferences } from './types';
+
+/** One effective preference set controls both analysis requests and their visible disclosures. */
+export function workspacePreferences(preferences: Preferences, playMode: Preferences['play_mode'], analysisMode: boolean): Preferences {
+  if (analysisMode || playMode !== 'independent') return preferences;
+  return {
+    ...preferences,
+    coaching_mode: 'independent',
+    feedback: 'none',
+    show_evaluation: false,
+    show_evaluation_bar: false,
+    show_alternatives: false,
+    show_pv: false,
+    hide_best_moves: true,
+    visual_arrows: 'on_request',
+  };
+}
+
 export type AssistanceCategory =
   'general_guidance' | 'piece_revealed' | 'destination_revealed' | 'full_solution' | 'engine_assisted';
 /** Persist an exposure before displaying it, so a failed write cannot silently inflate independence. */

@@ -7,6 +7,21 @@ import { GameSetup } from './GameDialogs';
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 describe('diary and adaptive setup rendering', () => {
+  it('explains automatic engine assistance in Danish even when the narrative is disabled', () => {
+    const markup = renderToStaticMarkup(
+      <LocaleContext.Provider value="da">
+        <DiaryEvidence preferences={{ ...defaults, language: 'da' }} content={{
+          status: 'completed', summary: '',
+          statistics: { games: 2, wins: 2, draws: 0, losses: 0, independent: 0, assisted: 67, unknown: 0 },
+          assistance_breakdown: { engine_assisted: 67 }, observations: [], recommendations: [],
+        }} />
+      </LocaleContext.Provider>,
+    );
+    expect(markup).toContain('Beslutninger med motoranalyse: 67');
+    expect(markup).toContain('selv uden hints');
+    expect(markup).toContain('Beslutninger med hjælp: 67');
+  });
+
   it('shows activity counts, selection and one keyboard entry point', () => {
     const markup = renderToStaticMarkup(
       <CalendarGrid

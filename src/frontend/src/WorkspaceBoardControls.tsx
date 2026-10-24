@@ -189,6 +189,7 @@ export function WorkspaceBoardControls({ workspace, analysisMode, preferences }:
             <option value="independent">{t('independent')}</option>
           </select>
           {playMode === 'coach_first' && <small>{t('coachFirstHelp')}</small>}
+          {playMode === 'independent' && <small>{t('independentPlayHelp')}</small>}
         </div>
       )}
       {computerReady && (
